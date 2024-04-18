@@ -75,6 +75,8 @@ class Structure:
 
     def __init__(self, materials, layer_type, thickness, verbose=True, unit="nm", si_units=False):
 
+        Anisotropy = False
+
         if (unit != "nm"):
             thickness = conv_to_nm(thickness, unit)
             if not(si_units):
@@ -90,6 +92,8 @@ class Structure:
         for mat in materials:
             if issubclass(mat.__class__,Material):
                 materials_final.append(mat)
+                if mat.specialType == "ANI":
+                    Anisotropy = True
                 if verbose :
                     print("Object:",mat.__class__.__name__)
             else :
@@ -98,7 +102,6 @@ class Structure:
         self.materials = materials_final
         self.layer_type = layer_type
         self.thickness = thickness
-
 
     def __str__(self):
         materials = [str(self.materials[i]) for i in range(len(self.materials))]
@@ -121,6 +124,7 @@ class Structure:
         for k in range(len(self.materials)):
             # Populate epsilon and mu arrays from the material.
             material = self.materials[k]
+            print(material.get_permittivity(wavelength))
             epsilon[k] = material.get_permittivity(wavelength)
             mu[k] = material.get_permeability(wavelength)
 
