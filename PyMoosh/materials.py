@@ -3,22 +3,23 @@ import numpy as np
 from scipy.special import wofz
 import json
 from refractiveindex import RefractiveIndexMaterial
+from PyMoosh.anisotropic_functions import get_refraction_indices
 
 class Material:
 
     """
-        Default types of material: / format:                 / specialType:
+        Types of material (default): / format:                 / specialType:
 
-            - simple_perm          / complex                 / 'Default'
-            - magnetic             / list(complex, float)    / 'Default'
-            - CustomFunction       / function                / 'Default'
-            - BrendelBormann       / string                  / 'Default'
+            - simple_perm            / complex                 / 'Default'
+            - magnetic               / list(complex, float)    / 'Default'
+            - CustomFunction         / function                / 'Default'
+            - BrendelBormann         / string                  / 'Default'
 
-        Special types of material: / format:                 / specialType:
+        Types of material (special): / format:                 / specialType:
 
-            - ExpData              / ???                     / 'ExpData'
-            - Refractiveindex.info / list(shelf, book, page) / 'RII'
-            - Anisotropic material / list(shelf, book, page) / 'ANI'
+            - ExpData                / ???                     / 'ExpData'
+            - RefractiveIndexInfo    / list(shelf, book, page) / 'RII'
+            - Anisotropic            / list(shelf, book, page) / 'ANI'
     """
 
     def __init__(self, mat, specialType="Default", verbose=False):
@@ -109,12 +110,12 @@ class Material:
         elif specialType == "RII":
             if len(mat) != 3:
                 print(f'Warning: Material RefractiveIndex Database is expected to be a list of 3 values, but {len(mat)} were given.')
-            self.type = "RefractiveIndexDatabase"
+            self.type = "RefractiveIndexInfo"
             self.specialType = specialType
             self.name = "MaterialRefractiveIndexDatabase: " + str(mat)
             shelf, book, page = mat[0], mat[1], mat[2]
-            material = RefractiveIndexMaterial(shelf, book, page) # create object
             self.path = "shelf: {}, book: {}, page: {}".format(shelf, book, page) # not necessary ?
+            material = RefractiveIndexMaterial(shelf, book, page) # create object
             self.material = material
             if verbose :
                 print("Hello there ;)")
@@ -147,14 +148,17 @@ class Material:
 
         elif specialType == "ANI" :
             if len(mat) != 3:
-                print(f'Warning: Material RefractiveIndex Database is expected to be a list of 3 values, but {len(mat)} were given.')
-            self.type = "RefractiveIndexDatabase"
+                print(f'Warning: Anisotropic material from Refractiveindex.info is expected to be a list of 3 values, but {len(mat)} were given.')
+            self.type = "Anisotropic"
             self.specialType = specialType
-            self.name = "MaterialRefractiveIndexDatabase: " + str(mat)
-            shelf, book = mat[0], mat[1]
-            material_ani = wrapper_anisotropy(page) # A list of three materials
+            shelf, book, page = mat[0], mat[1], mat[2]
             self.path = "shelf: {}, book: {}, page: {}".format(shelf, book, page) # not necessary ?
-            self.material_ani = material_ani
+            material_list = wrapper_anisotropy(shelf, book, page) # A list of three materials
+            self.material_list = material_list
+            self.material_x = material_list[0]
+            self.material_y = material_list[1]
+            self.material_z = material_list[2]
+            self.name = "Anisotropic material from Refractiveindex.info: " + str(mat)
             if verbose :
                 print("Material from Refractiveindex Database")
             if len(mat) != 3:
@@ -166,7 +170,7 @@ class Material:
             # sys.exit()
 
         else:
-            print(f'Warning : Unknown type : {specialType}')
+            print(f'Warning: Unknown type : {specialType}')
 
     def __str__(self):
         return self.name
@@ -191,38 +195,43 @@ class Material:
             chi_f = -self.omega_p ** 2 * self.f0 / (w * (w + 1j * self.Gamma0))
             epsilon = 1 + chi_f + chi_b
             return epsilon
-        elif self.specialType == "RefractiveIndexDatabase":
+        elif self.type == "RefractiveIndexInfo":
             try:
                 k = self.material.get_extinction_coefficient(wavelength)
                 return self.material.get_epsilon(wavelength)
             except:
                 n = self.material.get_refractive_index(wavelength)
                 return n**2
-        elif self.specialType == "ExpData":
+        elif self.type == "ExpData":
             return np.interp(wavelength, self.wavelength_list, self.permittivities)
-        elif self.specialType == "ANI":
-            permittivities = []
-            for main_axis in self.material_ani:
-                try:
-                    k = self.material.get_extinction_coefficient(wavelength)
-                    permittivities.append(self.material.get_epsilon(wavelength))
-                except:
-                    n = self.material.get_refractive_index(wavelength)
-                    permittivities.append(n**2)
-            return permittivities
-        
+        elif self.type == "Anisotropic":
+            print(f'Warning: Functions for anisotropic materials generaly requires more information than isotropic ones. You probably want to use \'get_permittivity_ani()\' function.')
+
     def get_permeability(self,wavelength, verbose=False):
         if self.type == "magnetic":
             return self.permeability
-        elif self.specialType == "RefractiveIndexDatabase":
+        elif self.type == "RefractiveIndexInfo":
             if verbose:
                 print('Warning: Magnetic parameters from RefractiveIndex Database are not implemented. Default permeability is set to 1.0 .')
             return 1.0
-        elif self.specialType == "ANI":
+        elif self.type == "Anisotropic":
             if verbose:
                 print('Warning: Magnetic parameters from RefractiveIndex Database are not implemented. Default permeability is set to 1.0 .')
             return [1.0, 1.0, 1.0]
         return 1.0
+
+# Anisotropic method
+    def get_permittivity_ani(self, wavelength, elevation_beam, precession, nutation, spin):
+        # We have three permittivities to extract
+        refraction_indices_medium = []
+        for material in self.material_list:
+            try:
+                k = material.get_extinction_coefficient(wavelength)
+                refraction_indices_medium.append(material.material.get_epsilon(wavelength))
+            except:
+                n = material.get_refractive_index(wavelength)
+                refraction_indices_medium.append(n**2)
+        return np.sqrt(get_refraction_indices(elevation_beam, refraction_indices_medium, precession, nutation, spin))
 
 def existing_materials():
     import pkgutil
@@ -258,7 +267,7 @@ def wrapper_anisotropy(shelf, book, page):
         # create ordinary and extraordinary object.
         material_o = RefractiveIndexMaterial(shelf, book, page_o)
         material_e = RefractiveIndexMaterial(shelf, book, page_e)
-        return [material_o, material_e]
+        return [material_o, material_o, material_e]
     
     elif page.endswith("-alpha") or page.endswith("-beta") or page.endswith("-gamma"):
         if page.endswith("-alpha"):
@@ -276,14 +285,17 @@ def wrapper_anisotropy(shelf, book, page):
     
     else:
         # there may better way to do it.
+        print("no")
         try:
             page_e, page_o = "".join(page, "-e"), "".join(page, "-e")
             material_o = RefractiveIndexMaterial(shelf, book, page_o)
             material_e = RefractiveIndexMaterial(shelf, book, page_e)
-            return [material_o, material_e]
+            return [material_o, material_o, material_e]
         except:
+            print("neither that way")
             try:
-                page_a, page_b, page_c = "".join(page, "-alpha"), "".join(page, "-beta"), "".join(page, "-gamma")
+                page_a, page_b, page_c = page + "-alpha", page + "-beta", page + "-gamma"
+                print(page_a)
                 material_alpha = RefractiveIndexMaterial(shelf, book, page_a)
                 material_beta = RefractiveIndexMaterial(shelf, book, page_b)
                 material_gamma = RefractiveIndexMaterial(shelf, book, page_c)
