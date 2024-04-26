@@ -137,7 +137,7 @@ def bfgs(f_cout, npas, start, *args):
 
     return best, f_cout(best)
 
-def QODE(f_cout, budget, X_min, X_max, population=30):
+def quasi_opposite_DE(f_cout, budget, X_min, X_max, population=30):
     """This is Quasi Opposite Differentiel Evolution.
 
     Args:
@@ -223,7 +223,7 @@ def QODE(f_cout, budget, X_min, X_max, population=30):
 
     return [best, convergence]
 
-def QNDE(f_cout, budget, X_min, X_max, population=30):
+def quasi_newton_DE(f_cout, budget, X_min, X_max, population=30):
     """This is Quasi Newton Differentiel Evolution.
 
     Args:
