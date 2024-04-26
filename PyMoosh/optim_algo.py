@@ -241,7 +241,7 @@ def quasi_newton_DE(f_cout, budget, X_min, X_max, population=30):
                              generation
     """
     half_budget = budget//2
-    first_best, first_convergence = QODE(f_cout, half_budget, X_min, X_max, population)
+    first_best, first_convergence = quasi_opposite_DE(f_cout, half_budget, X_min, X_max, population)
     best, last_convergence = bfgs(f_cout, half_budget, first_best, [X_min, X_max])
     convergence = first_convergence + last_convergence
-    return best, convergence
+    return [best, convergence]
