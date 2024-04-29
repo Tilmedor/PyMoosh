@@ -124,12 +124,34 @@ class Structure:
         for k in range(len(self.materials)):
             # Populate epsilon and mu arrays from the material.
             material = self.materials[k]
-            print(material.get_permittivity(wavelength))
+            #print(material.get_permittivity(wavelength))
             epsilon[k] = material.get_permittivity(wavelength)
             mu[k] = material.get_permeability(wavelength)
 
         return epsilon, mu
 
+    def polarizability_opti_wavelength(self, wavelength):
+        """ ** Only used for coefficient_S_opti_wavelength **
+        Computes the actual permittivity and permeability of each material considered in
+        the structure. This method is called before each calculation.
+
+        Args:
+            wavelength (numpy array): the working wavelength (in nanometers)
+        """
+
+
+        # Create empty mu and epsilon arrays
+        mu = np.ones((wavelength.size, len(self.materials)), dtype=complex)
+        epsilon = np.ones((wavelength.size, len(self.materials)), dtype=complex)
+        # Loop over all materials
+        for k in range(len(self.materials)):
+            # Populate epsilon and mu arrays from the material.
+            material = self.materials[k]
+            #print(material.get_permittivity(wavelength))
+            epsilon[:,k] = material.get_permittivity(wavelength)
+            mu[:,k] = material.get_permeability(wavelength)
+
+        return epsilon, mu
 
     def plot_stack(self, wavelength=None, lim_eps_colors=[1.5, 4]):
         """plot layerstack
@@ -290,7 +312,26 @@ def cascade(A, B):
     S[1, 1] = B[1, 1] + A[1, 1] * B[0, 1] * B[1, 0] * t
     return (S)
 
+def cascade_opti_wavelength(A, B, len_wl):
+    """
+    ** Only used in coefficient_S_opti_wavelength definition **
 
+    This function takes two 2x2 matrixes A and B of (len_wl, 1) arrays, that are assumed to be scattering matrixes
+    and combines them assuming A is the "upper" one, and B the "lower" one, physically.
+    The result is a 2x2 scattering matrix of (len_wl, 1) arrays.
+
+    Args:
+        A (2x2 numpy array of (len_wl, 1) arrays):
+        B (2x2 numpy arrayof (len_wl, 1) arrays):
+
+    """
+    t = 1 / (1 - B[0, 0] * A[1, 1])
+    S = np.zeros((2, 2, len_wl, 1), dtype=complex)
+    S[0, 0] = A[0, 0] + A[0, 1] * B[0, 0] * A[1, 0] * t
+    S[0, 1] = A[0, 1] * B[0, 1] * t
+    S[1, 0] = B[1, 0] * A[1, 0] * t
+    S[1, 1] = B[1, 1] + A[1, 1] * B[0, 1] * B[1, 0] * t
+    return (S)
 
 def cascade_DirtoNeu(A, B):
     """
@@ -1438,12 +1479,14 @@ def green(struct,window,lam,source_interface):
     return En
 #    return r_up,r_d
 
-def coefficient(struct, wavelength, incidence, polarization):
+def coefficient(struct, wavelength, incidence, polarization, wavelength_opti='False'):
     """
         Wrapper function to comput reflection and transmission coefficients
         with various methods.
         (and retrocompatibility)
     """
+    if wavelength_opti == True:
+        return coefficient_S_opti_wavelength(struct, wavelength, incidence, polarization)
     return coefficient_S(struct, wavelength, incidence, polarization)
 
 
@@ -1462,7 +1505,7 @@ def coefficient_S(struct, wavelength, incidence, polarization):
         r (complex): reflection coefficient, phase origin at first interface
         t (complex): transmission coefficient
         R (float): Reflectance (energy reflection)
-        T (float): Transmittance (energie transmission)
+        T (float): Transmittance (energy transmission)
 
 
     R and T are the energy coefficients (real quantities)
@@ -1491,13 +1534,17 @@ def coefficient_S(struct, wavelength, incidence, polarization):
         f = Epsilon
     # Wavevector in vacuum.
     k0 = 2 * np.pi / wavelength
+
     # Number of layers
     g = len(struct.layer_type)
+
     # Wavevector k_x, horizontal
     alpha = np.sqrt(Epsilon[Type[0]] * Mu[Type[0]]) * k0 * np.sin(incidence)
+
     # Computation of the vertical wavevectors k_z
     gamma = np.sqrt(
         Epsilon[Type] * Mu[Type] * k0 ** 2 - np.ones(g) * alpha ** 2)
+
     # Be cautious if the upper medium is a negative index one.
     if np.real(Epsilon[Type[0]]) < 0 and np.real(Mu[Type[0]]) < 0:
         gamma[0] = -gamma[0]
@@ -1506,6 +1553,7 @@ def coefficient_S(struct, wavelength, incidence, polarization):
     if g > 2:
         gamma[1:g - 2] = gamma[1:g - 2] * (
                     1 - 2 * (np.imag(gamma[1:g - 2]) < 0))
+        
     # Outgoing wave condition for the last medium
     if np.real(Epsilon[Type[g - 1]]) < 0 and np.real(
             Mu[Type[g - 1]]) < 0 and np.real(np.sqrt(Epsilon[Type[g - 1]] * Mu[
@@ -1524,6 +1572,7 @@ def coefficient_S(struct, wavelength, incidence, polarization):
         # Layer scattering matrix
         t = np.exp((1j) * gamma[k] * thickness[k])
         T[2 * k + 1] = [[0, t], [t, 0]]
+
         # Interface scattering matrix
         b1 = gf[k]
         b2 = gf[k + 1]
@@ -1531,6 +1580,7 @@ def coefficient_S(struct, wavelength, incidence, polarization):
                                  [2 * b1, b2 - b1]]) / (b1 + b2)
     t = np.exp((1j) * gamma[g - 1] * thickness[g - 1])
     T[2 * g - 1] = [[0, t], [t, 0]]
+
     # Once the scattering matrixes have been prepared, now let us combine them
     A = np.zeros(((2 * g - 1, 2, 2)), dtype=complex)
     A[0] = T[0]
@@ -1549,7 +1599,137 @@ def coefficient_S(struct, wavelength, incidence, polarization):
 
     return r, t, R, T
 
+def coefficient_S_opti_wavelength(struct, wavelength, incidence, polarization):
+    """
+    ** Optimized function of coefficient_S for an array of wavelength, instead of a float **
+    This function computes the reflection and transmission coefficients
+    of the structure.
 
+    Args:
+        struct (Structure): belongs to the Structure class
+        wavelength (numpy array of floats): wavelength of the incidence light (in nm)
+        incidence (float): incidence angle in radians
+        polarization (float): 0 for TE, 1 (or anything) for TM
+
+    returns:
+        r (numpy array of complexs): reflection coefficient, phase origin at first interface
+        t (numpy array of complexs): transmission coefficient
+        R (numpy array of floats): Reflectance (energy reflection)
+        T (numpy array of floats): Transmittance (energy transmission)
+
+
+    R and T are the energy coefficients (real quantities)
+
+    .. warning: The transmission coefficients have a meaning only if the lower medium
+    is lossless, or they have no true meaning.
+    """
+    # In order to get a phase that corresponds to the expected reflected coefficient,
+    # we make the height of the upper (lossless) medium vanish. It changes only the
+    # phase of the reflection coefficient.
+
+    # The medium may be dispersive. The permittivity and permability of each
+    # layer has to be computed each time.
+    len_wl = wavelength.size
+    len_mat = len(struct.materials)
+    wavelength.shape = (len_wl, 1)
+
+    if (struct.unit != "nm"):
+        wavelength = conv_to_nm(wavelength, struct.unit)
+
+    # Epsilon and Mu are (len_wl, len_mat) arrays
+    Epsilon, Mu = struct.polarizability_opti_wavelength(wavelength)
+    Epsilon.shape, Mu.shape = (len_wl, len_mat), (len_wl, len_mat)
+    thickness = copy.deepcopy(struct.thickness)
+    thickness = np.asarray(thickness)
+
+    # In order to ensure that the phase reference is at the beginning
+    # of the first layer. thickness is still
+    thickness[0] = 0
+    thickness.shape = (1, len(thickness))
+    Type = struct.layer_type
+
+    # The boundary conditions will change when the polarization changes.
+    if polarization == 0:
+        f = Mu
+    else:
+        f = Epsilon
+
+    # Wavevector in vacuum. Array of shape (len_wl, 1).
+    k0 = 2 * np.pi / wavelength
+
+    # Number of layers
+    g = len(struct.layer_type)
+
+    # Wavevector k_x, horizontal. Array of shape (len_wl, 1).
+    Epsilon_first, Mu_first = Epsilon[:,Type[0]], Mu[:,Type[0]]
+    Epsilon_first.shape, Mu_first.shape = (len_wl, 1), (len_wl, 1)
+    alpha = np.sqrt(Epsilon_first * Mu_first) * k0 * np.sin(incidence)
+
+    # Computation of the vertical wavevectors k_z. Array of shape (len_wl, len_mat).
+    gamma = np.sqrt(
+        Epsilon[:,Type] * Mu[:,Type] * k0 ** 2 - np.ones((len_wl, g)) * alpha ** 2)
+
+    # Be cautious if the upper medium is a negative index one.
+    mask = np.logical_and(np.real(Epsilon_first) < 0, np.real(Mu_first) < 0)
+    np.putmask(gamma[:,0], mask,-gamma[:,0])
+    
+    # Changing the determination of the square root to achieve perfect stability
+    if g > 2:
+        gamma[:,1:g - 2] = gamma[:,1:g - 2] * (
+                    1 - 2 * (np.imag(gamma[:,1:g - 2]) < 0))
+        
+    # Outgoing wave condition for the last medium
+    Epsilon_new, Mu_new = Epsilon[:,Type[g-1]], Mu[:,Type[g-1]]
+    Epsilon_new.shape, Mu_new.shape = (len_wl, 1), (len_wl, 1)
+    gamma_new = np.sqrt(Epsilon_new* Mu_new * k0 ** 2 - alpha ** 2)
+    mask = np.logical_and.reduce(
+    (np.real(Epsilon_new) < 0, np.real(Mu_new) < 0, np.real(gamma_new) != 0))
+    not_mask = np.logical_or.reduce(
+    (np.real(Epsilon_new) > 0, np.real(Mu_new) > 0, np.real(gamma_new) == 0))
+    np.putmask(gamma[:,g-1], mask, -gamma_new)
+    np.putmask(gamma[:,g-1], not_mask, gamma_new)
+
+    # Each layer has a (2, 2) matrix with (len_wl, 1) array as coefficient.
+    T = np.zeros(((2 * g, 2, 2, len_wl, 1)), dtype=complex)
+
+    # first S matrix
+    zeros, ones = np.zeros((len_wl, 1)), np.ones((len_wl, 1))
+    T[0] = [[zeros, ones], [ones, zeros]]
+    gf = gamma / f[:,Type]
+    for k in range(g - 1):
+        # Layer scattering matrix
+        t = np.exp((1j) * gamma[:,k] * thickness[0,k])
+        t.shape = (len_wl, 1)
+        T[2 * k + 1] = [[zeros, t], [t, zeros]]
+
+        # Interface scattering matrix
+        b1 = gf[:,k]
+        b2 = gf[:,k + 1]
+        b1.shape, b2.shape = (len_wl, 1), (len_wl, 1)
+        T[2 * k + 2] = np.array([[b1 - b2, 2 * b2],
+                                 [2 * b1, b2 - b1]]) / (b1 + b2)
+    
+    t = np.exp((1j) * gamma[:,g - 1] * thickness[0,g - 1])
+    t.shape = (len_wl, 1)
+    T[2 * g - 1] = [[zeros, t], [t, zeros]]
+
+    # Once the scattering matrixes have been prepared, now let us combine them
+    A = np.zeros(((2 * g - 1, 2, 2, len_wl, 1)), dtype=complex)
+    A[0] = T[0]
+
+    for j in range(len(T) - 2):
+        A[j + 1] = cascade_opti_wavelength(A[j], T[j + 1], len_wl)
+    # reflection coefficient of the whole structure
+    r = A[len(A) - 1][0, 0]
+    # transmission coefficient of the whole structure
+    t = A[len(A) - 1][1, 0]
+    # Energy reflexion coefficient;
+    R = np.real(np.absolute(r) ** 2)
+    # Energy transmission coefficient;
+    ephemeral = gamma[:,g - 1] * f[:,Type[0]] / (gamma[:,0] * f[:,Type[g - 1]])
+    ephemeral.shape = (len_wl, 1)
+    T = np.real(np.absolute(t) ** 2 * ephemeral)
+    return r, t, R, T
 
 def coefficient_A(struct, wavelength, incidence, polarization):
     """

@@ -17,7 +17,7 @@ class Material:
 
         Types of material (special): / format:                 / specialType:
 
-            - ExpData                / ???                     / 'ExpData'
+            - ExpData                / string                  / 'ExpData'
             - RefractiveIndexInfo    / list(shelf, book, page) / 'RII'
             - Anisotropic            / list(shelf, book, page) / 'ANI'
     """
@@ -213,15 +213,16 @@ class Material:
         elif self.type == "RefractiveIndexInfo":
             if verbose:
                 print('Warning: Magnetic parameters from RefractiveIndex Database are not implemented. Default permeability is set to 1.0 .')
-            return 1.0
+            return np.ones(wavelength.size)
         elif self.type == "Anisotropic":
             if verbose:
                 print('Warning: Magnetic parameters from RefractiveIndex Database are not implemented. Default permeability is set to 1.0 .')
-            return [1.0, 1.0, 1.0]
+            return [1.0, 1.0, 1.0] # We should extend it to an array
         return 1.0
 
 # Anisotropic method
-    def get_permittivity_ani(self, wavelength, elevation_beam, precession, nutation, spin):
+
+    def get_permittivity_transmitted_wave(self, wavelength, elevation_beam, precession, nutation, spin):
         # We have three permittivities to extract
         refraction_indices_medium = []
         for material in self.material_list:
@@ -285,14 +286,12 @@ def wrapper_anisotropy(shelf, book, page):
     
     else:
         # there may better way to do it.
-        print("no")
         try:
-            page_e, page_o = "".join(page, "-e"), "".join(page, "-e")
+            page_e, page_o = page + "-e", page + "-o"
             material_o = RefractiveIndexMaterial(shelf, book, page_o)
             material_e = RefractiveIndexMaterial(shelf, book, page_e)
             return [material_o, material_o, material_e]
         except:
-            print("neither that way")
             try:
                 page_a, page_b, page_c = page + "-alpha", page + "-beta", page + "-gamma"
                 print(page_a)
