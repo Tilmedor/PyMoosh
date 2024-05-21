@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.optimize import minimize
 
-def differential_evolution(f_cout, budget, X_min, X_max, population=30):
+def differential_evolution(f_cout, budget, X_min, X_max, population=30, progression=False):
     """This is Differentiel Evolution in its current to best version.
 
     Args:
@@ -78,6 +78,8 @@ def differential_evolution(f_cout, budget, X_min, X_max, population=30):
         who = np.argmin(cost)
         best = omega[who]
         convergence.append(cost[who])
+        if (evaluation % 100 == 0) and progression:
+            print(f'Progression : {np.round(evaluation/(budget - population), 2)*100}%. Current cost : {np.round(f_cout(best),2)}')
 
     convergence = convergence[0:generation+1]
 
@@ -137,7 +139,7 @@ def bfgs(f_cout, npas, start, *args):
 
     return best, f_cout(best)
 
-def QODE(f_cout, budget, X_min, X_max, population=30):
+def QODE(f_cout, budget, X_min, X_max, population=30, progression=False):
     """This is Quasi Opposite Differentiel Evolution.
 
     Args:
@@ -218,12 +220,14 @@ def QODE(f_cout, budget, X_min, X_max, population=30):
         who = np.argmin(cost)
         best = omega[who]
         convergence.append(cost[who])
+        if (evaluation % 50 == 0) and progression:
+            print(f'Progression : {np.round(evaluation/(budget - population), 2)*100}%. Current cost : {np.round(f_cout(best),2)}')
 
     convergence = convergence[0:generation+1]
 
     return [best, convergence]
 
-def QNDE(f_cout, budget, X_min, X_max, population=30):
+def QNDE(f_cout, budget, X_min, X_max, population=30, progression=False):
     """This is Quasi Newton Differentiel Evolution.
 
     Args:
@@ -241,7 +245,8 @@ def QNDE(f_cout, budget, X_min, X_max, population=30):
                              generation
     """
     half_budget = budget//2
-    first_best, first_convergence = QODE(f_cout, half_budget, X_min, X_max, population)
+    first_best, first_convergence = QODE(f_cout, half_budget, X_min, X_max, population, progression)
+    print('Switching to bfgs gradient descent...') if progression else None
     best, last_convergence = bfgs(f_cout, half_budget, first_best, [X_min, X_max])
     convergence = first_convergence + last_convergence
     return [best, convergence]
