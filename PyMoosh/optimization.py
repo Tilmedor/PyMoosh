@@ -22,7 +22,9 @@ class optimization:
     """
     def __init__(
         self,
-        struct: pm.Structure,
+        mat,
+        stack,
+        thickness,
         which_layers: np.ndarray,
         wl_domain: np.ndarray, # only for plot
         incidence: float,
@@ -30,8 +32,8 @@ class optimization:
         cost_function,
         computation_window: np.ndarray, # only for computation
         objective_vector: np.ndarray,
-        bound_min: np.ndarray,
-        bound_max: np.ndarray,
+        X_min: np.ndarray,
+        X_max: np.ndarray,
         indices: bool = False,
         budget: int = 1000,
         nb_runs: int = 1,
@@ -40,31 +42,16 @@ class optimization:
         objective_title: str = "default title",
         objective_ylabel: str = "default",
         wl_plot_stack: float = 500,
+        precision: int = 3,
+        verbose: bool = False
     ):  
         # Structure to optimize. Thicknesses are supposed to be optimized by default.
         # Optimizing optical indices is also possible, then the chosen materials are 
         # not impacting the result, but the boundaries are. Stack is always fixed.
-
-        """
-        if isinstance(self.struct.materials, np.ndarray) or isinstance(self.struct.materials, list):
-            self.materials = np.asarray(self.struct.materials) #, dtype=float)
-        else:
-            print(f'Required material should be a list or an array, but a {type(struct.materials)} were given.')
-            sys.exit()
-
-        if isinstance(self.struct.layer_type, np.ndarray) or isinstance(self.struct.layer_type, list):
-            self.stack = np.asarray(self.struct.layer_type, dtype=int)
-        else:
-            print(f'Required stack should be a list or an array, but a {type(struct.layer_type)} were given.')
-            sys.exit()
-
-        if isinstance(self.struct.thickness, np.ndarray) or isinstance(self.struct.thickness, list):
-            self.thickness = np.asarray(self.struct.thickness, dtype=float)
-        else:
-            print(f'Required material should be a list or an array, but a {type(struct.thickness)} were given')
-            sys.exit()
-        """
-        self.which_layers = np.bool_(np.ones_like(which_layers)) # which layer to optimize
+        self.mat = mat
+        self.stack = stack
+        self.thickness = thickness
+        self.which_layers = which_layers # which layer to optimize
 
         # Light parameters:
         self.wl_domain = wl_domain # only for plots
@@ -75,25 +62,24 @@ class optimization:
         self.cost_function = cost_function
         self.computation_window = computation_window
         self.objective_vector = objective_vector
-        self.bound_min = bound_min
-        self.bound_max = bound_max
+        self.X_min = X_min
+        self.X_max = X_max
         self.indices = indices
     
         if indices:
             # we change the stack-material relation by a one-by-one link, 
             # because the optical indices will change over all optimized
             # layers. 
-            new_materials = np.ones_like(struct.layer_type, dtype=pm.Material)
-            for count, mat in enumerate(struct.materials):
-                mask = (np.asarray(struct.layer_type)[:] == count)
-                np.putmask(new_materials, mask, np.full((1,len(new_materials)), mat))
-            struct.materials = new_materials
-            struct.layer_type = np.arange(len(struct.layer_type), dtype=int)
-        
+            new_materials = np.ones_like(self.stack, dtype=pm.Material)
+            for count, mat in enumerate(mat):
+                mask = (np.asarray(self.stack)[:] == count)
+                np.putmask(new_materials, mask, np.full((1,len(new_materials)), pm.Material(mat)))
+            self.mat = new_materials
+            self.stack = np.arange(len(self.stack), dtype=int)
+    
         self.budget = budget
         self.nb_runs = nb_runs
         self.optimizer = optimizer
-        self.progression = progression
 
         # Plots parameters:
         self.progression = progression
@@ -101,19 +87,43 @@ class optimization:
         self.objective_title = objective_title
         self.objective_ylabel = objective_ylabel
         self.wl_plot_stack = wl_plot_stack
+        self.precision = precision
 
-    def wrapper_optimize(self):
+        if verbose:
+            for i in self.mat:
+                print(f'DEBUG mat: {i}')
+            print(f'DEBUG stack: {self.stack}')
+            print(f'DEBUG thickness: {self.thickness}')
+            print(f'DEBUG which_layers: {self.which_layers}')
+            print(f'DEBUG wl_domain: {self.wl_domain}')
+            print(f'DEBUG incidence: {self.incidence}')
+            print(f'DEBUG polar: {self.polar}')
+            print(f'DEBUG cost_function: {self.cost_function}')
+            print(f'DEBUG computation_window: {self.computation_window}')
+            print(f'DEBUG objective_vector: {self.objective_vector}')
+            print(f'DEBUG X_min: {self.X_min}')
+            print(f'DEBUG X_max: {self.X_max}')
+            print(f'DEBUG indices: {self.indices}')
+            print(f'DEBUG budget: {self.budget}')
+            print(f'DEBUG nb_runs: {self.nb_runs}')
+            print(f'DEBUG optimizer: {self.optimizer}')
+            print(f'DEBUG progression: {self.progression}')
+            print(f'DEBUG objective_title: {self.objective_title}')
+            print(f'DEBUG objective_ylabel: {self.objective_ylabel}')
+            print(f'DEBUG wl_plot_stack: {self.wl_plot_stack}')
+
+    def wrapper_optimizer(self):
         if self.optimizer == 'DE':
-            return pm.differential_evolution(self.cost_function, self.budget, self.bound_min, self.bound_max, progression=self.progression)
+            return pm.differential_evolution(self.cost_function, self.budget, self.X_min, self.X_max, population=30, progression=self.progression)
         
         elif self.optimizer == 'QODE':
-            return pm.QODE(self.cost_function, self.budget, self.bound_min, self.bound_max, progression=self.progression)
+            return pm.QODE(self.cost_function, self.budget, self.X_min, self.X_max, population=30, progression=self.progression)
         
         elif self.optimizer == 'QNDE':
-            return pm.QNDE(self.cost_function, self.budget, self.bound_min, self.bound_max, progression=self.progression)
+            return pm.QNDE(self.cost_function, self.budget, self.X_min, self.X_max, population=30, progression=self.progression)
         
         elif self.optimizer == 'BFGS':
-            return pm.bfgs(self.cost_function, self.budget, struct.thickness, [self.bound_min, self.bound_max])
+            return pm.bfgs(self.cost_function, self.budget, self.thickness, self.X_min, self.X_max)
         
         else:
             print('Unknown optimizer. See docstring:')
@@ -127,8 +137,8 @@ class optimization:
             start = time.perf_counter()
             
             # Optimize.
-            best, convergence = self.wrapper_optimize()
-
+            best, convergence = self.wrapper_optimizer()
+            
             # Finish time.
             perf = round(time.perf_counter()-start, 2)
             print(f'Finished in {perf // 60} min {round(perf % 60, 2)} seconds.')
@@ -136,23 +146,17 @@ class optimization:
             print('Best guess found:')                
             if self.indices:
                 lim = len(best)//2
-                th = np.asarray(struct.thickness, dtype=float)
-                mat = np.asarray(struct.materials)
-                np.putmask(th, self.which_layers, best[:lim])
-                np.putmask(mat, self.which_layers, best[lim:])
-                struct.update(th, mat)
                 print('thicknesses:')
-                print(struct.thickness)
+                print(best[:lim])
                 print('materials:')
-                for i in struct.materials:
+                for i in best[lim:]:
                     print(i)
+                struct = pm.Structure(best[lim:], self.stack, best[:lim])
 
             else:
-                th = np.asarray(struct.thickness, dtype=float)
-                np.putmask(th, self.which_layers, best)
-                struct.update(th)
                 print('thicknesses:')
-                print(struct.thickness)
+                print(best)
+                struct = pm.Structure(self.mat, self.stack, best)
 
             # Plot convergence.
             plt.plot(convergence)
@@ -173,7 +177,7 @@ class optimization:
             plt.show()
 
             # Plot stack
-            struct.plot_stack(wavelength=self.wl_plot_stack, lim_eps_colors=[1.5, 4])
+            struct.plot_stack(wavelength=self.wl_plot_stack, lim_eps_colors=[1.5, 4], precision=self.precision)
 
         elif self.nb_runs != 1:
             def stats(_):
@@ -201,7 +205,7 @@ class optimization:
             for convergence in convergence_list:
                 plt.plot(convergence)
             plt.suptitle(f'Consistency curve.')
-            plt.title(f'{self.runs} runs, {self.budget} budget.')
+            plt.title(f'{self.nb_runs} runs, {self.budget} budget.')
             plt.xlabel("Iterations")
             plt.ylabel("Cost function")
             plt.show()
@@ -219,153 +223,17 @@ class optimization:
             costs = [self.cost_function(best) for best in best_list]
             index_best = np.argmin(costs)
             best = best_list[index_best]
-            print('Best guess found:')                
+            print('Best guess found:')
             if self.indices:
-                np.putmask(self.thickness, self.which_layers, best[len(best)//2:])
+                lim = len(best)//2
                 print('thicknesses:')
-                print(self.thickness)
-                np.putmask(self.thickness, self.which_layers, best[:len(best)//2])
-                print('optical indices:')
-                print(mat)
+                print(best[:lim])
+                print('materials:')
+                for i in best[lim:]:
+                    print(i)
+                struct = pm.Structure(best[lim:], self.stack, best[:lim])
+
             else:
-                np.putmask(self.thickness, self.which_layers, best)
                 print('thicknesses:')
-                print(thickness)
-
-if __name__ == '__main__':
-
-    import numpy as np
-    import matplotlib.pyplot as plt
-
-    ## Fixing the structure:
-    n = 5
-    mat = [1.4, 1.7, 2.0, 1.0]
-    stack =  [0, 1] * n # [3] + + [2]
-    thickness = [300 for _ in range(2*n)] # not so important #[0] ++ [100]
-    struct = pm.Structure(mat, stack, thickness, verbose=False)
-
-    which_layers = np.ones_like(stack) #np.bool_(np.ones_like(stack))#np.bool_(np.concatenate(([0],np.ones(2*n),[0]))) # array of boolean
-    min_th, max_th = 0, 600
-    min_n, max_n = 1.0, 2.0
-    X_min = min_th * np.ones(2*n) 
-    X_max = max_th * np.ones(2*n)  
-    #X_min = np.append( min_th * np.ones(2*n), min_n * np.ones(2*n) )
-    #X_max = np.append( max_th * np.ones(2*n), max_n * np.ones(2*n) )
-    
-    ## Light parameters:
-    wl_domain = np.linspace(400, 800, 1000)
-    incidence = 0.0
-    polar = 0
-
-    ## Optimization paramters:
-
-     # First define objective function:
-    def objective(wl):
-        wl1, wl2 = 550, 600
-        return np.heaviside(wl - wl1, 0) * np.heaviside(wl2 - wl, 0)
-    
-    computation_window = np.linspace(551, 599, 1)
-    objective_vector = objective(computation_window)
-
-     # Then define cost function:
-    ### LE BANDEAU DOIT IMPERATIVEMENT ETRE DE LA FORME SUIVANTE : LAYERS / MAT / STACK / THICKNESS / WHICH_LAYERS
-    
-    def cost(layers): # total = 6.6e-3
-        # layers == thicknesses. Update the thickness:
-        #np.putmask(np.asarray(thickness, dtype=float), which_layers, layers)
-        # Create the new structure:
-        structure = pm.Structure(mat, stack, layers, verbose=False) # 6.8e-5
-        # Compute the new Reflectance coefficient:
-        R_vector = pm.coefficient(structure, computation_window, incidence, polar, wavelength_opti=True)[2] # 6.4e-3
-        # How far the new reflectance is with respect to the objective ?
-        #print(R_vector)
-        return np.linalg.norm(R_vector - objective_vector, ord=None)
-    """  
-    def cost(layers):
-        new_thickness = np.zeros_like(thickness, dtype=float)
-        # layers == thicknesses. Update the thickness:
-        np.putmask(new_thickness, which_layers, layers)
-        # Update structure:
-        struct.update(new_thickness)
-        # Compute the new Reflectance coefficient:
-        R_vector = pm.coefficient(struct, computation_window, incidence, polar, wavelength_opti=True)[2] 
-        # How far the new reflectance is with respect to the objective ?
-        return np.linalg.norm(R_vector - objective_vector, ord=None)
-    """
-    """
-    def cost_indices(layers_and_indices, mat, stack, thickness, which_layers):
-        # layers[:lim] == thicknesses, and layers[lim:] == optical indices.
-        lim = len(layers_and_indices)//2
-        # Update the thickness:
-        np.putmask(np.asarray(thickness, dtype=float), which_layers[:lim], np.asarray(layers_and_indices[:lim]))
-        # Update the optical indices: 
-        print(mat)
-        np.putmask(np.asarray(mat, dtype=float), which_layers[lim:], np.asarray(layers_and_indices[lim:]))
-        # Create the new structure:
-        structure = pm.Structure(mat, stack, thickness, verbose=False)
-        # Compute the new Reflectance coefficient:
-        R_vector = pm.coefficient(structure, computation_window, incidence, polar, wavelength_opti=True)[2]
-        # How far the new reflectance is with respect to the objective ?
-        return np.linalg.norm(R_vector - objective_vector, ord=None)
-    """
-    def cost_indices(layers_and_indices):
-        lim = len(layers_and_indices)//2
-        new_thickness = np.zeros_like(struct.thickness, dtype=float)
-        new_materials = np.zeros_like(struct.materials, dtype=float)
-
-        # layers[:lim] == thicknesses, and layers[lim:] == optical indices.
-        
-        # Update the thickness:
-        np.putmask(new_thickness, which_layers, np.asarray(layers_and_indices[:lim]))
-        # Update the optical indices: 
-        np.putmask(new_materials, which_layers, np.asarray(layers_and_indices[lim:]))
-        # Update structure:
-        struct.update(new_thickness, new_materials) #= new_materials
-        # Compute the new Reflectance coefficient:
-        R_vector = pm.coefficient(struct, computation_window, incidence, polar, wavelength_opti=True)[2]
-        # How far the new reflectance is with respect to the objective ?
-        return np.linalg.norm(R_vector - objective_vector, ord=None)
-    
-    cost_function = cost
-    bound_min = X_min
-    bound_max = X_max
-    indices = False
-    budget = 30000
-    nb_runs = 1
-    optimizer = 'QNDE'
-
-    ## Plot parameters:
-    progression = True
-    draw_convergence = True
-    draw_objective = True
-    draw_stack = True
-    objective_title = 'Reflectance in function of wavelength, one run.'
-    objective_ylabel = 'reflectance'
-
-    ## Finally, start optimization:
-    optim = optimization(struct, which_layers, wl_domain, incidence, polar, cost_function, 
-                         computation_window, objective_vector, bound_min, bound_max, indices, 
-                         budget, nb_runs, optimizer, progression, objective_title, objective_ylabel)
-
-    optim.run()
-    """
-    structure = pm.Structure(mat, stack, thickness, verbose=False) # 3.4e-5
-    structure.thickness = thickness
-    R_vector = pm.coefficient(structure, computation_window, incidence, polar, wavelength_opti=True)[2] # 6.4e-3
-    obj_vector = objective(computation_window) # 2.8e-5
-    np.linalg.norm(R_vector - obj_vector, ord=None) # 2.9e-5 ord=None
-    """
-    """
-    start = time.perf_counter()
-   
-    perf = time.perf_counter()-start
-    print(perf)
-    """
-    """
-    thickness = np.array(thickness)
-    which_layers = np.bool_(which_layers)
-    print(which_layers)
-    print(np.logical_not(which_layers))
-    layers = np.arange(90)
-    np.putmask(np.asarray(thickness), np.asarray(which_layers), layers)
-    print(thickness)"""
+                print(best)
+                struct = pm.Structure(self.mat, self.stack, best)

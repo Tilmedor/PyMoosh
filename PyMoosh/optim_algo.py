@@ -79,7 +79,7 @@ def differential_evolution(f_cout, budget, X_min, X_max, population=30, progress
         best = omega[who]
         convergence.append(cost[who])
         if (evaluation % 100 == 0) and progression:
-            print(f'Progression : {np.round(evaluation/(budget - population), 2)*100}%. Current cost : {np.round(f_cout(best),2)}')
+            print(f'Progression : {np.round(evaluation*100/(budget - population), 2)}%. Current cost : {np.round(f_cout(best),2)}')
 
     convergence = convergence[0:generation+1]
 
@@ -137,7 +137,7 @@ def bfgs(f_cout, npas, start, *args):
 
     best = res.x
 
-    return best, f_cout(best)
+    return [best, f_cout(best)]
 
 def QODE(f_cout, budget, X_min, X_max, population=30, progression=False):
     """This is Quasi Opposite Differentiel Evolution.
@@ -171,13 +171,14 @@ def QODE(f_cout, budget, X_min, X_max, population=30, progression=False):
     omega=np.zeros((population,n))
     cost=np.zeros(population)
     #center of optimization domain
-    c = (X_max - X_min)/2
+    c = (X_max + X_min)/2
     for k in range(0,population, 2):
         omega[k]=X_min+(X_max-X_min)*np.random.random(n)
         cost[k]=f_cout(omega[k])
-        omega[k+1] = c - (omega[k] - c)*np.random.random(n)
+        delta = 2*(c - omega[k])*np.random.random(n)
+        omega[k+1] = omega[k] + delta
         cost[k+1]=f_cout(omega[k+1])
-      
+
     # Who's the best ?
     who=np.argmin(cost)
     best=omega[who]
@@ -221,7 +222,7 @@ def QODE(f_cout, budget, X_min, X_max, population=30, progression=False):
         best = omega[who]
         convergence.append(cost[who])
         if (evaluation % 50 == 0) and progression:
-            print(f'Progression : {np.round(evaluation/(budget - population), 2)*100}%. Current cost : {np.round(f_cout(best),2)}')
+            print(f'Progression : {np.round(evaluation*100/(budget - population), 2)}%. Current cost : {np.round(f_cout(best),2)}')
 
     convergence = convergence[0:generation+1]
 
@@ -247,6 +248,6 @@ def QNDE(f_cout, budget, X_min, X_max, population=30, progression=False):
     half_budget = budget//2
     first_best, first_convergence = QODE(f_cout, half_budget, X_min, X_max, population, progression)
     print('Switching to bfgs gradient descent...') if progression else None
-    best, last_convergence = bfgs(f_cout, half_budget, first_best, [X_min, X_max])
-    convergence = first_convergence + last_convergence
+    best, last_convergence = bfgs(f_cout, half_budget, first_best, X_min, X_max)
+    convergence = np.append(np.asarray(first_convergence), last_convergence)
     return [best, convergence]

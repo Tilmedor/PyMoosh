@@ -5,6 +5,7 @@ import sys
 import copy
 import matplotlib.pyplot as plt
 import itertools
+import re
 
 from PyMoosh.materials import *
 
@@ -153,7 +154,7 @@ class Structure:
 
         return epsilon, mu
 
-    def plot_stack(self, wavelength=None, lim_eps_colors=[1.5, 4]):
+    def plot_stack(self, wavelength=None, lim_eps_colors=[1.5, 4], precision=3):
         """plot layerstack
 
         evaluate materials at given wavelength for labels
@@ -205,11 +206,14 @@ class Structure:
 
             spacing = ""
             if len(_thick) > 12:
-                spacing = " " * np.random.randint(50)
+                spacing = " " #* np.random.randint(50)
             if i not in _index_diff:
                 text = f'{spacing}eps={n}'
             else:
-                text = f'{spacing}mat={_mats_names[np.where(_index_diff==i)[0][0]]}'
+                #text = f'{spacing}mat={_mats_names[np.where(_index_diff==i)[0][0]]}'
+                n =  _mats_names[np.where(_index_diff==i)[0][0]]
+                n = [float(s) for s in re.findall(r"-?\d+\.?\d*", n)][0]
+                text = f'{spacing}mat={np.round(n, precision)}'
 
             if len(_thick)-1 > i >= 1:
                 plt.text(0.05, d0+di/2, text, ha='left', va='center',fontsize=8)
