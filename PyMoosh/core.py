@@ -142,8 +142,8 @@ class Structure:
 
 
         # Create empty mu and epsilon arrays
-        mu = np.ones((wavelength.size, len(self.materials)), dtype=complex)
-        epsilon = np.ones((wavelength.size, len(self.materials)), dtype=complex)
+        mu = np.ones((wavelength.size, len(self.materials)), dtype=np.clongdouble)
+        epsilon = np.ones((wavelength.size, len(self.materials)), dtype=np.clongdouble)
         # Loop over all materials
         for k in range(len(self.materials)):
             # Populate epsilon and mu arrays from the material.
@@ -1490,8 +1490,8 @@ def coefficient(struct, wavelength, incidence, polarization, wavelength_opti='Fa
         (and retrocompatibility)
     """
     if wavelength_opti == True:
-        return coefficient_S_opti_wavelength(struct, wavelength, incidence, polarization)
-    return coefficient_S(struct, wavelength, incidence, polarization)
+        return coefficient_A_opti_wavelength(struct, wavelength, incidence, polarization)
+    return coefficient_A(struct, wavelength, incidence, polarization)
 
 
 def coefficient_S(struct, wavelength, incidence, polarization):
@@ -1605,7 +1605,9 @@ def coefficient_S(struct, wavelength, incidence, polarization):
 
 def coefficient_S_opti_wavelength(struct, wavelength, incidence, polarization):
     """
-    ** Optimized function of coefficient_S for an array of wavelength, instead of a float **
+    ** OPTIMIZED FUNCTION OF coefficient_S FOR 
+    AN ARRAY OF WAVELENGTH, INSTEAD OF A FLOAT **
+    
     This function computes the reflection and transmission coefficients
     of the structure.
 
@@ -1640,14 +1642,14 @@ def coefficient_S_opti_wavelength(struct, wavelength, incidence, polarization):
     if (struct.unit != "nm"):
         wavelength = conv_to_nm(wavelength, struct.unit)
 
-    # Epsilon and Mu are (len_wl, len_mat) arrays
+    # Epsilon and Mu are (len_wl, len_mat) arrays.
     Epsilon, Mu = struct.polarizability_opti_wavelength(wavelength)
     Epsilon.shape, Mu.shape = (len_wl, len_mat), (len_wl, len_mat)
     thickness = copy.deepcopy(struct.thickness)
     thickness = np.asarray(thickness)
 
     # In order to ensure that the phase reference is at the beginning
-    # of the first layer. thickness is still
+    # of the first layer.
     thickness[0] = 0
     thickness.shape = (1, len(thickness))
     Type = struct.layer_type
@@ -1677,12 +1679,12 @@ def coefficient_S_opti_wavelength(struct, wavelength, incidence, polarization):
     mask = np.logical_and(np.real(Epsilon_first) < 0, np.real(Mu_first) < 0)
     np.putmask(gamma[:,0], mask,-gamma[:,0])
     
-    # Changing the determination of the square root to achieve perfect stability
+    # Changing the determination of the square root to achieve perfect stability.
     if g > 2:
         gamma[:,1:g - 2] = gamma[:,1:g - 2] * (
                     1 - 2 * (np.imag(gamma[:,1:g - 2]) < 0))
         
-    # Outgoing wave condition for the last medium
+    # Outgoing wave condition for the last medium.
     Epsilon_new, Mu_new = Epsilon[:,Type[g-1]], Mu[:,Type[g-1]]
     Epsilon_new.shape, Mu_new.shape = (len_wl, 1), (len_wl, 1)
     gamma_new = np.sqrt(Epsilon_new* Mu_new * k0 ** 2 - alpha ** 2)
@@ -1733,6 +1735,7 @@ def coefficient_S_opti_wavelength(struct, wavelength, incidence, polarization):
     ephemeral = gamma[:,g - 1] * f[:,Type[0]] / (gamma[:,0] * f[:,Type[g - 1]])
     ephemeral.shape = (len_wl, 1)
     T = np.real(np.absolute(t) ** 2 * ephemeral)
+
     return r, t, R, T
 
 def coefficient_A(struct, wavelength, incidence, polarization):
@@ -1804,20 +1807,26 @@ def coefficient_A(struct, wavelength, incidence, polarization):
         gamma[g - 1] = np.sqrt(
             Epsilon[Type[g - 1]] * Mu[Type[g - 1]] * k0 ** 2 - alpha ** 2)
 
-
     T = np.zeros(((g-1, 2, 2)), dtype=complex)
     c = np.cos(gamma * thickness)
     s = np.sin(gamma * thickness)
+    #print(f'DEBUG c : {c}')
     gf = gamma/f[Type]
     for k in range(g-1):
         # Layer scattering matrix
-
+        debug = c[k]
+        print(f'DEBUG debug: {debug}')
         T[k] = [[c[k], -s[k] / gf[k]],
                 [gf[k] * s[k], c[k]]]
+        print(f'DEBUG T[k]: {T[k]}')
     # Once the scattering matrixes have been prepared, now let us combine them
 
     A = np.empty((2,2), dtype=complex)
     A = T[0]
+    #print(f'DEBUG A: {A}')
+    #print(f'DEBUG A.shape: {A.shape}')
+    #print(f'DEBUG T: {T}')
+    #print(f'DEBUG T.shape: {T.shape}')
     for i in range(1, T.shape[0]):
         A = T[i] @ A
 
@@ -1825,7 +1834,10 @@ def coefficient_A(struct, wavelength, incidence, polarization):
     b = A[0, 1]
     c = A[1, 0]
     d = A[1, 1]
-
+    #print(f'DEBUG a: {a}')
+    #print(f'DEBUG b: {b}')
+    #print(f'DEBUG c: {c}')
+    #print(f'DEBUG d: {d}')
     amb = a - 1.j * gf[0] * b
     apb = a + 1.j * gf[0] * b
     cmd = c - 1.j * gf[0] * d
@@ -1842,6 +1854,156 @@ def coefficient_A(struct, wavelength, incidence, polarization):
 
     return r, t, R, T
 
+def coefficient_A_opti_wavelength(struct, wavelength, incidence, polarization):
+    """
+    ** OPTIMIZED FUNCTION OF coefficient_A FOR 
+    AN ARRAY OF WAVELENGTH, INSTEAD OF A FLOAT **
+
+    This function computes the reflection and transmission coefficients
+    of the structure using the (true) Abeles matrix formalism.
+
+    Args:
+        struct (Structure): belongs to the Structure class
+        wavelength (float): wavelength of the incidence light (in nm)
+        incidence (float): incidence angle in radians
+        polarization (float): 0 for TE, 1 (or anything) for TM
+
+    returns:
+        r (complex): reflection coefficient, phase origin at first interface
+        t (complex): transmission coefficient
+        R (float): Reflectance (energy reflection)
+        T (float): Transmittance (energie transmission)
+
+
+    R and T are the energy coefficients (real quantities)
+
+    .. warning: The transmission coefficients have a meaning only if the lower medium
+    is lossless, or they have no true meaning.
+    """
+    # In order to get a phase that corresponds to the expected reflected coefficient,
+    # we make the height of the upper (lossless) medium vanish. It changes only the
+    # phase of the reflection coefficient.
+
+    # The medium may be dispersive. The permittivity and permability of each
+    # layer has to be computed each time.
+    len_wl = wavelength.size
+    len_mat = len(struct.materials)
+    wavelength.shape = (len_wl, 1)
+
+    if (struct.unit != "nm"):
+        wavelength = conv_to_nm(wavelength, struct.unit)
+
+    # Epsilon and Mu are (len_wl, len_mat) arrays.
+    Epsilon, Mu = struct.polarizability_opti_wavelength(wavelength)
+    Epsilon.shape, Mu.shape = (len_wl, len_mat), (len_wl, len_mat)
+    thickness = copy.deepcopy(struct.thickness)
+    thickness = np.asarray(thickness)
+
+    # In order to ensure that the phase reference is at the beginning
+    # of the first layer.
+    thickness[0] = 0
+    thickness.shape = (1, len(thickness))
+    Type = struct.layer_type
+
+    # The boundary conditions will change when the polarization changes.
+    if polarization == 0:
+        f = Mu
+    else:
+        f = Epsilon
+
+    # Wavevector in vacuum. Array of shape (len_wl, 1).
+    k0 = 2 * np.pi / wavelength
+
+    # Number of layers.
+    g = len(struct.layer_type)
+
+    # Wavevector k_x, horizontal. Array of shape (len_wl, 1).
+    Epsilon_first, Mu_first = Epsilon[:,Type[0]], Mu[:,Type[0]]
+    Epsilon_first.shape, Mu_first.shape = (len_wl, 1), (len_wl, 1)
+    alpha = np.sqrt(Epsilon_first * Mu_first) * k0 * np.sin(incidence)
+    # Computation of the vertical wavevectors k_z. Array of shape (len_wl, len_mat).
+    gamma = np.sqrt(
+        Epsilon[:,Type] * Mu[:,Type] * k0 ** 2 - np.ones((len_wl, g)) * alpha ** 2)
+    
+    # Be cautious if the upper medium is a negative index one.
+    mask = np.logical_and(np.real(Epsilon_first) < 0, np.real(Mu_first) < 0)
+    np.putmask(gamma[:,0], mask,-gamma[:,0])
+
+    # Changing the determination of the square root to achieve perfect stability.
+    if g > 2:
+        gamma[:,1:g - 2] = gamma[:,1:g - 2] * (
+                    1 - 2 * (np.imag(gamma[:,1:g - 2]) < 0))
+    
+    # Outgoing wave condition for the last medium.
+    Epsilon_new, Mu_new = Epsilon[:,Type[g-1]], Mu[:,Type[g-1]]
+    Epsilon_new.shape, Mu_new.shape = (len_wl, 1), (len_wl, 1)
+    gamma_new = np.sqrt(Epsilon_new* Mu_new * k0 ** 2 - alpha ** 2)
+    mask = np.logical_and.reduce(
+    (np.real(Epsilon_new) < 0, np.real(Mu_new) < 0, np.real(gamma_new) != 0))
+    not_mask = np.logical_or.reduce(
+    (np.real(Epsilon_new) > 0, np.real(Mu_new) > 0, np.real(gamma_new) == 0))
+    np.putmask(gamma[:,g-1], mask, -gamma_new)
+    np.putmask(gamma[:,g-1], not_mask, gamma_new)
+    
+    # Each layer has a (2, 2) matrix with (len_wl, 1) array as coefficient.
+    T = np.zeros(((g-1, 2, 2, len_wl)), dtype=np.clongdouble)
+    c = np.cos(gamma * thickness)
+    s = np.sin(gamma * thickness)
+    gf = gamma/f[:,Type]
+    #print(f'DEBUG c : {c}')
+
+    for k in range(g-1):
+        # Layer scattering matrix
+        ephemeral_c_k, ephemeral_s_k, ephemeral_gf_k = c[:,k], s[:,k], gf[:,k]
+        ephemeral_c_k.shape, ephemeral_s_k.shape, ephemeral_gf_k.shape = (len_wl), (len_wl), (len_wl)
+        debug = ephemeral_c_k
+        #print(f'DEBUG debug: {debug}')
+        T[k] = np.array([[ephemeral_c_k, -ephemeral_s_k / ephemeral_gf_k],
+                  [ephemeral_gf_k * ephemeral_s_k, ephemeral_c_k]])
+        #print(f'DEBUG T[k]: {T[k]}')
+    # Once the scattering matrixes have been prepared, now let us combine them
+
+    A = np.empty((2, 2, len_wl), dtype=np.clongdouble)
+    A = T[0]
+    #C = T[:,1]
+    #print(f'DEBUG A: {A}')
+    #print(f'DEBUG A.shape: {A.shape}')
+    #print(f'DEBUG T: {T}')
+    #print(f'DEBUG T.shape: {T.shape}')
+    #print(f'DEBUG C: {C}')
+    #print(f'DEBUG C.shape: {C.shape}')
+    # We change the form of the matrix A to use numpy methods.
+    for i in range(1, T.shape[0]):
+        B = T[i,:,:,:]
+        A = np.transpose(A, (2,0,1))
+        B = np.transpose(B, (2,0,1))
+        A = np.matmul(B, A)
+        A = np.transpose(A, (1,2,0))
+
+    a = A[:][0, 0]
+    b = A[:][0, 1]
+    c = A[:][1, 0]
+    d = A[:][1, 1]
+    #print(f'DEBUG a: {a}')
+    #print(f'DEBUG b: {b}')
+    #print(f'DEBUG c: {c}')
+    #print(f'DEBUG d: {d}')
+
+    amb = a - 1.j * gf[:,0] * b
+    apb = a + 1.j * gf[:,0] * b
+    cmd = c - 1.j * gf[:,0] * d
+    cpd = c + 1.j * gf[:,0] * d
+
+    # reflection coefficient of the whole structure
+    r = -(cmd + 1.j * gf[:,-1] * amb)/(cpd + 1.j * gf[:,-1] * apb)
+    # transmission coefficient of the whole structure
+    t = a * (r+1) + 1.j * gf[:,0] * b * (r-1)
+    # Energy reflexion coefficient;
+    R = np.real(np.absolute(r) ** 2)
+    # Energy transmission coefficient;
+    T = np.real(np.absolute(t) ** 2 * gf[:,g - 1] / gf[:,0])
+
+    return r, t, R, T
 
 def coefficient_T(struct, wavelength, incidence, polarization):
     """
