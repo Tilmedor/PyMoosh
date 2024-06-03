@@ -1810,23 +1810,18 @@ def coefficient_A(struct, wavelength, incidence, polarization):
     T = np.zeros(((g-1, 2, 2)), dtype=complex)
     c = np.cos(gamma * thickness)
     s = np.sin(gamma * thickness)
-    #print(f'DEBUG c : {c}')
+
     gf = gamma/f[Type]
     for k in range(g-1):
         # Layer scattering matrix
-        debug = c[k]
-        print(f'DEBUG debug: {debug}')
         T[k] = [[c[k], -s[k] / gf[k]],
                 [gf[k] * s[k], c[k]]]
-        print(f'DEBUG T[k]: {T[k]}')
+
     # Once the scattering matrixes have been prepared, now let us combine them
 
     A = np.empty((2,2), dtype=complex)
     A = T[0]
-    #print(f'DEBUG A: {A}')
-    #print(f'DEBUG A.shape: {A.shape}')
-    #print(f'DEBUG T: {T}')
-    #print(f'DEBUG T.shape: {T.shape}')
+
     for i in range(1, T.shape[0]):
         A = T[i] @ A
 
@@ -1834,10 +1829,7 @@ def coefficient_A(struct, wavelength, incidence, polarization):
     b = A[0, 1]
     c = A[1, 0]
     d = A[1, 1]
-    #print(f'DEBUG a: {a}')
-    #print(f'DEBUG b: {b}')
-    #print(f'DEBUG c: {c}')
-    #print(f'DEBUG d: {d}')
+
     amb = a - 1.j * gf[0] * b
     apb = a + 1.j * gf[0] * b
     cmd = c - 1.j * gf[0] * d
@@ -1950,28 +1942,19 @@ def coefficient_A_opti_wavelength(struct, wavelength, incidence, polarization):
     c = np.cos(gamma * thickness)
     s = np.sin(gamma * thickness)
     gf = gamma/f[:,Type]
-    #print(f'DEBUG c : {c}')
 
     for k in range(g-1):
         # Layer scattering matrix
         ephemeral_c_k, ephemeral_s_k, ephemeral_gf_k = c[:,k], s[:,k], gf[:,k]
         ephemeral_c_k.shape, ephemeral_s_k.shape, ephemeral_gf_k.shape = (len_wl), (len_wl), (len_wl)
-        debug = ephemeral_c_k
-        #print(f'DEBUG debug: {debug}')
         T[k] = np.array([[ephemeral_c_k, -ephemeral_s_k / ephemeral_gf_k],
                   [ephemeral_gf_k * ephemeral_s_k, ephemeral_c_k]])
-        #print(f'DEBUG T[k]: {T[k]}')
+
     # Once the scattering matrixes have been prepared, now let us combine them
 
     A = np.empty((2, 2, len_wl), dtype=np.clongdouble)
     A = T[0]
-    #C = T[:,1]
-    #print(f'DEBUG A: {A}')
-    #print(f'DEBUG A.shape: {A.shape}')
-    #print(f'DEBUG T: {T}')
-    #print(f'DEBUG T.shape: {T.shape}')
-    #print(f'DEBUG C: {C}')
-    #print(f'DEBUG C.shape: {C.shape}')
+
     # We change the form of the matrix A to use numpy methods.
     for i in range(1, T.shape[0]):
         B = T[i,:,:,:]
@@ -1984,10 +1967,6 @@ def coefficient_A_opti_wavelength(struct, wavelength, incidence, polarization):
     b = A[:][0, 1]
     c = A[:][1, 0]
     d = A[:][1, 1]
-    #print(f'DEBUG a: {a}')
-    #print(f'DEBUG b: {b}')
-    #print(f'DEBUG c: {c}')
-    #print(f'DEBUG d: {d}')
 
     amb = a - 1.j * gf[:,0] * b
     apb = a + 1.j * gf[:,0] * b

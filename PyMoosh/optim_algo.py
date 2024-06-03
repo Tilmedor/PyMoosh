@@ -79,7 +79,7 @@ def differential_evolution(f_cout, budget, X_min, X_max, population=30, progress
         best = omega[who]
         convergence.append(cost[who])
         if (evaluation % 100 == 0) and progression:
-            print(f'Progression : {np.round(evaluation*100/(budget - population), 2)}%. Current cost : {np.round(f_cout(best),2)}')
+            print(f'Progression : {np.round(evaluation*100/(budget - population), 2)}%. Current cost : {np.round(f_cout(best),6)}%')
 
     convergence = convergence[0:generation+1]
 
@@ -222,7 +222,7 @@ def QODE(f_cout, budget, X_min, X_max, population=30, progression=False):
         best = omega[who]
         convergence.append(cost[who])
         if (evaluation % 50 == 0) and progression:
-            print(f'Progression : {np.round(evaluation*100/(budget - population), 2)}%. Current cost : {np.round(f_cout(best),2)}')
+            print(f'Progression : {np.round(evaluation*100/(budget - population), 2)}%. Current cost : {np.round(f_cout(best),6)}%')
 
     convergence = convergence[0:generation+1]
 
