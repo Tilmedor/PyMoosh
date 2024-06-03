@@ -46,8 +46,6 @@ class optimization:
     - computation_window (nunmpy ndarray of floats): The wavelength
       optimization region. Only for computations.
 
-    - computation window : NOT FINISHED
-
     - which_layers (nunmpy ndarray of boolean): Same length of 'stack'.
       It indicates which layers are optimized in the stack (which_layer[i] = True).
       Neither the thicknesses nor the optical indices are optimized for the others
