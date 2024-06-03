@@ -35,11 +35,6 @@ class optimization:
       optimized. Optimized layers are indicated by 'which_layers' (see above).
       WARNING : if True, the stack needs to be 'np.arange(len(stack))' to work properly.
 
-    - which_layers (nunmpy ndarray of boolean): Same length of 'stack'.
-      It indicates which layers are optimized in the stack (which_layer[i] = True).
-      Neither the thicknesses nor the optical indices are optimized for the others
-      (which_layer[i] = False). 
-
     - cost_function (function): function to minimize. It requires only
       the argument 'layers'.
 
@@ -52,6 +47,11 @@ class optimization:
       optimization region. Only for computations.
 
     - computation window : NOT FINISHED
+
+    - which_layers (nunmpy ndarray of boolean): Same length of 'stack'.
+      It indicates which layers are optimized in the stack (which_layer[i] = True).
+      Neither the thicknesses nor the optical indices are optimized for the others
+      (which_layer[i] = False). 
 
     - budget (integer, default = 1000): number of iteration for optimization.
 
@@ -109,11 +109,11 @@ class optimization:
         polar: int,
         # Optimization
         indices: bool,
-        which_layers: np.ndarray,
         cost_function,
         X_min: np.ndarray,
         X_max: np.ndarray,
         computation_window: np.ndarray,
+        which_layers: np.ndarray = None,
         budget: int = 1000,
         nb_runs: int = 1,
         optimizer: str = 'DE',
@@ -259,8 +259,6 @@ class optimization:
             plt.xlabel("Iterations")
             plt.ylabel("Cost function")
             plt.show()
-
-            #R_best = pm.coefficient(struct, self.wl_domain, self.incidence, self.polar, wavelength_opti=True)[2]
 
             # Plot objective.
             plt.plot(self.computation_window, self.objective_vector, label='objective')
