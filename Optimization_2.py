@@ -10,18 +10,17 @@ DON'T FORGET TO INSTALL THE CORRESPONDING LIBRARIES:
 - concurrent.futures
 """
 # Fixing the structure:
-n = 30
+n = 10
 mat = [1.0, 1.5**2, 2.0**2]
 stack =  [0] + [1, 2] * n + [1, 0]
 thickness = [999.0 for _ in stack]
 which_layers = np.bool_(np.ones_like(stack))
 min_th, max_th = 50.0, 100.0
-min_n, max_n = 1.5**2, 2.0**2
 X_min = min_th * np.ones_like(stack) 
 X_max = max_th * np.ones_like(stack)  
 
 # Light parameters:
-wl_domain = np.linspace(400, 800, 1000)
+wl_domain = np.linspace(400, 800, 400)
 incidence = 0.0
 polar = 0
 
@@ -42,8 +41,8 @@ cost_function = cost
 bound_min = X_min
 bound_max = X_max
 indices = False
-budget = 10000
-nb_runs = 1
+budget = 8000
+nb_runs = 20
 optimizer = 'QNDE'
 
 ## Plot parameters:
@@ -51,7 +50,7 @@ optimizer = 'QNDE'
 def f_draw(struct):
     return pm.coefficient(struct, wl_domain, incidence, polar, wavelength_opti=True)[2]
 
-progression = True
+progression = False
 objective_title = 'Reflectance in function of wavelength, one run.'
 objective_ylabel = 'reflectance'
 wl_plot_stack = 600.0

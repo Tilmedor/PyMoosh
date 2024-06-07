@@ -259,8 +259,11 @@ class optimization:
             plt.show()
 
             # Plot objective.
-            plt.plot(self.computation_window, self.objective_vector, label='objective')
-            plt.plot(self.wl_domain, self.f_draw(struct), label='best guess')
+            if self.objective_vector.size == 1 :
+                plt.scatter(self.computation_window, self.objective_vector, label='objective', marker="+")
+            else:
+                plt.plot(self.computation_window, self.objective_vector, label='objective')
+            plt.plot(self.wl_domain, self.f_draw(struct), label='best guess', )
             plt.suptitle(self.objective_title)
             plt.xlabel("wavelength, nm")
             plt.ylabel(self.objective_ylabel)
@@ -306,21 +309,27 @@ class optimization:
             # Plot convergence & stats.
             for convergence in convergence_list:
                 plt.plot(convergence)
-            plt.suptitle(f'Consistency curve.')
+            plt.suptitle(f'Convergence curve.')
             plt.title(f'{self.nb_runs} runs, {self.budget} budget.')
             plt.xlabel("Iterations")
             plt.ylabel("Cost function")
             plt.show()
 
-            # Statistics plot.
+            # Consistency plot.
             convergence_value_list = [convergence[-1] for convergence in convergence_list]
-            plt.hist(convergence_value_list)
-            plt.suptitle(f'Histograms of convergent cost values.')
+            convergence_value_list.sort() # sort the list in ascending order
+            plt.plot(convergence_value_list, marker="s")
+            plt.suptitle(f'Consistency curve.')
             plt.title(f'{self.nb_runs} runs, {self.budget} budget.')
-            plt.xlabel("Convergence Cost value")
-            plt.ylabel("Occurance")
+            plt.xlabel("")
+            plt.ylabel("Convergence cost value")
             plt.show()
-
+            median = np.median(convergence_value_list)
+            mean = np.mean(convergence_value_list)
+            sigma = np.std(convergence_value_list)
+            print(f'median :{median}')
+            print(f'mean :{mean}')
+            print(f'sigma :{sigma}')
             # Printing best.
             costs = [self.cost_function(best) for best in best_list]
             index_best = np.argmin(costs)
@@ -339,3 +348,15 @@ class optimization:
                 print('thicknesses:')
                 print(best)
                 struct = pm.Structure(self.mat, self.stack, best)
+
+            # Plot objective.
+            if self.objective_vector.size == 1 :
+                plt.scatter(self.computation_window, self.objective_vector, label='objective')
+            else:
+                plt.plot(self.computation_window, self.objective_vector, label='objective')
+            plt.plot(self.wl_domain, self.f_draw(struct), label='best guess')
+            plt.suptitle(self.objective_title)
+            plt.xlabel("wavelength, nm")
+            plt.ylabel(self.objective_ylabel)
+            plt.legend(loc='best')
+            plt.show()
