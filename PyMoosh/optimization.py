@@ -7,6 +7,83 @@ import concurrent.futures
 import sys
 plt.rcParams['figure.dpi'] = 150
 
+def norm(a, b, c, ord=None):
+    return np.linalg.norm(a - b, ord=ord)/len(c)
+
+
+def constant(wl):
+    return 1.0
+
+
+def attributeDrawFunction(draw_functions, incidence, polar, active_layer):
+
+    is_reference_list = []
+    function_list = []
+    short_name_list = []
+    name_list = []
+
+    for f in draw_functions:
+        """
+        For plot purpose. From the list of functions to draw, return differents informations for plots.
+        Inputs:
+        - draw_functions : list of functions or 'keywords' to use built-in functions
+        - wl_domain      : *see 'optimization' class docstring.
+        - incidence      : *
+        - polar          : *
+        - active_layer   : *
+
+        Returns:
+        - is_reference_list (list of bool)      : Tell if the function is a reference function or not
+        - function_list     (list of functions) : List of the functions to draw. The first function is 
+                                                  expected to be one of the reference function, otherwise
+                                                  the optimization could returns nonsense.
+        - short_name_list   (list of strings)   : List of the shortnames of the optical properties.
+        - name_list         (list of strings)   : List of the names of the optical properties.
+
+
+        """
+
+        is_reference = True
+        short_name = f
+
+        if f == 'R':
+            name = 'Reflectance'
+            ref_function = lambda struct, domain : pm.absorption(struct, domain, incidence, polar, wavelength_opti=True)[3]
+
+        elif f == 'T':
+            name = 'Transmittance'
+            ref_function = lambda struct, domain : pm.absorption(struct, domain, incidence, polar, wavelength_opti=True)[4]
+
+        elif f == 'A':
+            name = 'Absorption'
+            ref_function = lambda struct, domain : pm.absorption(struct, domain, incidence, polar, wavelength_opti=True)[0][:,active_layer]
+
+        elif f == 'C':
+            name = 'Short-circuit current'
+            ref_function = lambda struct, domain : pm.opti_photo(struct, incidence, polar, domain[0], domain[-1], active_layer, len(domain))[1]
+
+        elif f == 'CM':
+            name = 'Maximum short-circuit current'
+            ref_function = lambda struct, domain : pm.opti_photo(struct, incidence, polar, domain[0], domain[-1], active_layer, len(domain))[2]
+
+        elif f == 'joker':
+            sys.exit() # for future implementations
+
+        else:
+            is_reference = False
+            ref_function = f
+            short_name = f.__name__[0]
+            name = f.__name__
+        
+        is_reference_list.append(is_reference)
+        function_list.append(ref_function)
+        short_name_list.append(short_name)
+        name_list.append(name)
+    
+    return [is_reference_list, function_list, short_name_list, name_list]
+
+
+
 class optimization:
     """
     One code to optimize them all, one code to find solutions,
@@ -68,15 +145,15 @@ class optimization:
 
     Depending on the number of runs, several plots can show:
     If 'nb_runs' = 1, a 'convergence plot' will be shown first. Then a'comparison plot'
-    will appear between the 'objective_vector' and 'f_draw'. Otherwise, if 'nb_runs' is 
+    will appear between the 'objective_vector' and 'draw_function'. Otherwise, if 'nb_runs' is 
     higher than 1, a 'consistency plot' will be shown, which is a superposition of the
     'nb_runs' 'consistency' plots. Independently of 'nb_runs' value, a diagram of the
     thicknesses and the optical indices will appear.
 
     - objective_vector (nunmpy ndarray of floats): A vector to visually compare
-    to 'f_draw'.
+    to 'draw_function'.
 
-    - f_draw (function): function to print and compare to the 'objective_function'.
+    - draw_function (function): function to print and compare to the 'objective_function'.
 
     - progression (boolean, default = False): If True, prints the optimization progression
       as a percentage of computation.
@@ -98,27 +175,28 @@ class optimization:
     """
     def __init__(
         self,
-        # Physics
+        # Basic parameters
         mat,
         stack,
         thickness,
-        wl_domain: np.ndarray,
         incidence: float,
         polar: int,
-        # Optimization
-        indices: bool,
-        cost_function,
         X_min: np.ndarray,
         X_max: np.ndarray,
         computation_window: np.ndarray,
+        budget: int,
+        nb_runs: int,
+        wl_domain: np.ndarray = np.linspace(400, 800, 100),
+        objective_function = constant,
+        draw_functions = 'R',
+        # Advanced parameters
+        active_layer: float = -1,
+        cost_function = None,
         which_layers: np.ndarray = None,
-        budget: int = 1000,
-        nb_runs: int = 1,
-        optimizer: str = 'DE',
-        # Plots
-        objective_vector: np.ndarray = None,
-        f_draw = None, # SAME SIZE AS WL_DOMAIN
-        progression: bool = False,
+        indices: bool = False,
+        optimizer: str = 'QNDE',
+        # Plot parameters   
+        progression: bool = True,
         objective_title: str = "comparison curve",
         objective_ylabel: str = "default",
         wl_plot_stack: float = 500,
@@ -128,26 +206,37 @@ class optimization:
         # Structure to optimize. Thicknesses are supposed to be optimized by default.
         # Optimizing optical indices is also possible, then initial materials are 
         # not impacting the result, but the boundaries are. Stack is always fixed.
+
         self.mat = mat
-
-        #if (isinstance(stack, list) or isinstance(stack, np.ndarray)) and isinstance(np.asarray(stack).all, int):
         self.stack = stack
-        #else:
-        #    print(f'WARNING: stack is expected to be a list or an array of integers, but {stack} were given.')
-        
-        #if (isinstance(stack, list) or isinstance(stack, np.ndarray)) and isinstance(np.asarray(stack).all, float):
         self.thickness = thickness
-        #else:
-        #    print(f'WARNING: thickness is expected to be a list or an array of floats, but {thickness} were given.')
-
-        # Light parameters:
-        self.wl_domain = wl_domain # only for plots
         self.incidence = incidence
         self.polar = polar
+        self.X_min = X_min
+        self.X_max = X_max
+        self.computation_window = computation_window
+        self.budget = budget
+        self.nb_runs = nb_runs
+        self.wl_domain = wl_domain
+        self.objective_function = objective_function
+        # Create a vector from the function.
+        objective_vector = objective_function(computation_window) # Do not erase this line!
+        self.objective_vector = objective_vector
+        self.draw_functions = list(draw_functions)
+        
+        # Advanced parameters:
 
-        # Computation parameters:
+        self.active_layer = active_layer
+        self.cost_function = cost_function
+        self.optimizer = optimizer
+        ## Check the layer to optimize.
+        if type(which_layers) == None:
+            self.which_layers = np.bool_(np.ones_like(self.stack))
+        else:
+            self.which_layers = which_layers
+
+        ## Check the indices to optimize.
         self.indices = indices
-        """
         if indices:
             # we change the stack-material relation by a one-by-one link, 
             # because the optical indices will change over all optimized
@@ -156,61 +245,65 @@ class optimization:
             for count, mat in enumerate(mat):
                 mask = (np.asarray(self.stack)[:] == count)
                 np.putmask(new_materials, mask, np.full((1,len(new_materials)), pm.Material(mat)))
-            self.mat = new_materials
-            self.stack = np.arange(len(self.stack), dtype=int)
-        """
-        self.which_layers = which_layers
-        self.cost_function = cost_function
-        self.X_min = X_min
-        self.X_max = X_max
-        self.computation_window = computation_window
-        self.budget = budget
-        self.nb_runs = nb_runs
-        self.optimizer = optimizer     
-
+            mat = new_materials # variable to use later
+            self.mat = mat
+            stack = np.arange(len(self.stack), dtype=int)
+            self.stack = stack # variable to use later       
+         
         # Plots parameters:
-        self.objective_vector = objective_vector
-        self.f_draw = f_draw # could be a function to plot or a list of function to plot
-        #if isinstance(f_draw, list):
-        #    draw_multiple = True
-        #else:
-        #    draw_multiple = False
+
         self.progression = progression
         self.objective_title = objective_title
         self.objective_ylabel = objective_ylabel
         self.wl_plot_stack = wl_plot_stack
         self.precision = precision
 
-        if verbose:
-            for i in self.mat:
-                print(f'mat: {i}')
-            print(f'stack: {self.stack}')
-            print(f'thickness: {self.thickness}')
-            print(f'which_layers: {self.which_layers}')
-            print(f'wl_domain: {self.wl_domain}')
-            print(f'incidence: {self.incidence}')
-            print(f'polar: {self.polar}')
-            print(f'cost_function: {self.cost_function}')
-            print(f'computation_window: {self.computation_window}')
-            print(f'objective_vector: {self.objective_vector}')
-            print(f'X_min: {self.X_min}')
-            print(f'X_max: {self.X_max}')
-            print(f'indices: {self.indices}')
-            print(f'budget: {self.budget}')
-            print(f'nb_runs: {self.nb_runs}')
-            print(f'optimizer: {self.optimizer}')
-            print(f'progression: {self.progression}')
-            print(f'f_draw: {self.f_draw}')
-            print(f'objective_title: {self.objective_title}')
-            print(f'objective_ylabel: {self.objective_ylabel}')
-            print(f'wl_plot_stack: {self.wl_plot_stack}')
+        print(locals()) if verbose else None
 
-    def wrapper_optimizer(self):
+        # Internal computations for default cost functions
+        # 3 - Define a default draw function
+           
+        is_reference_list, function_list, short_name_list, name_list = attributeDrawFunction(draw_functions, incidence, polar, active_layer)
+
+        if len(draw_functions) == 1 :
+            self.objective_title = f'{name_list[0]} in function of wavelength, number of runs:{nb_runs}, bugdet:{budget}.'
+            self.objective_ylabel = name_list[0]
+
+        else:
+            self.objective_title = f'Optical properties in function of wavelength, number of runs:{nb_runs}, bugdet:{budget}.'
+            self.objective_ylabel = short_name_list
+
+        self.function_list = function_list
+
+        # 4 - Define a default cost function
+
+        f = function_list[0]
+        if is_reference_list[0] and not indices:
+
+            def default_cost_function(layers):
+                structure = pm.Structure(mat, stack, list(layers), verbose=False)             
+                return norm(objective_vector, f(structure, computation_window), computation_window)
+            
+            self.cost_function = default_cost_function
+            
+        elif is_reference_list[0] and indices:
+            
+            lim = len(X_min)//2
+            def default_cost_function_indices(param):
+                layers = param[::lim]
+                mat = param[lim::]
+                structure = pm.Structure(mat, stack, list(layers), verbose=False)
+                return norm(objective_vector, f(structure), computation_window)
+            
+            self.cost_function = default_cost_function_indices
+        
+
+    def wrapper_algorithms(self):
         if self.optimizer == 'DE':
             return pm.differential_evolution(self.cost_function, self.budget, self.X_min, self.X_max, population=30, progression=self.progression)
         
         elif self.optimizer == 'QODE':
-            return pm.QODE(self.cost_function, self.budget, self.X_min, self.X_max, population=30, progression=self.progression)
+            return pm.QODE(self.cost_function, self.budget, self.X_min, self.X_max, population=50, progression=self.progression)
         
         elif self.optimizer == 'QNDE':
             return pm.QNDE(self.cost_function, self.budget, self.X_min, self.X_max, population=30, progression=self.progression)
@@ -223,140 +316,113 @@ class optimization:
             print(self.__doc__)
             sys.exit()
 
-    def run(self):
-        if self.nb_runs == 1:
-            # Start time.
-            print("Current Time =", datetime.now().strftime("%H:%M:%S"))
-            start = time.perf_counter()
-            
-            # Optimize.
-            best, convergence = self.wrapper_optimizer()
-            
-            # Finish time.
-            perf = round(time.perf_counter()-start, 2)
-            print(f'Finished in {perf // 60} min {round(perf % 60, 2)} seconds.')
 
-            print('Best guess found:')                
-            if self.indices:
-                lim = len(best)//2
-                print('thicknesses:')
-                print(best[:lim])
-                print('materials:')
-                for i in best[lim:]:
-                    print(i)
-                struct = pm.Structure(best[lim:], self.stack, best[:lim])
+    def do_optimize(self):
 
-            else:
-                print('thicknesses:')
-                print(best)
-                struct = pm.Structure(self.mat, self.stack, best)
+        def iterate_runs(_):
+            best, convergence = self.wrapper_algorithms()
+            return best, convergence
+        best_list, convergence_list = [], []
 
-            # Plot convergence.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(iterate_runs, _) for _ in range(self.nb_runs)]
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                best_list.append(result[0])
+                convergence_list.append(result[1]) 
+        
+        return [best_list, convergence_list]
+
+
+    def plot_convergence(self, convergence_list):
+        for convergence in convergence_list:
             plt.plot(convergence)
-            plt.suptitle(f'Convergence curve, one run, {self.budget} budget.')
-            plt.xlabel("Iterations")
-            plt.ylabel("Cost function")
-            plt.show()
+        suptitle = 'Convergence curve' if self.nb_runs == 1 else 'Convergence curves'
+        plt.suptitle(suptitle)
+        plt.title(f'{self.nb_runs} runs, {self.budget} budget.')
+        plt.xlabel("Iterations")
+        plt.ylabel("Cost function")
+        plt.show()
 
-            # Plot objective.
-            if self.objective_vector.size == 1 :
-                plt.scatter(self.computation_window, self.objective_vector, label='objective', marker="+")
-            else:
-                plt.plot(self.computation_window, self.objective_vector, label='objective')
-            plt.plot(self.wl_domain, self.f_draw(struct), label='best guess', )
-            plt.suptitle(self.objective_title)
-            plt.xlabel("wavelength, nm")
-            plt.ylabel(self.objective_ylabel)
-            plt.legend(loc='best')
-            plt.show()
 
-            # Plot stack
-            struct.plot_stack(wavelength=self.wl_plot_stack, lim_eps_colors=[1.5, 4], precision=self.precision)
+    def plot_consistency(self, convergence_list):
+        convergence_value_list = [convergence[-1] for convergence in convergence_list]
+        convergence_value_list.sort() # sort the list in ascending order
+        plt.plot(convergence_value_list, marker="s")
+        plt.suptitle(f'Consistency curve.')
+        plt.title(f'{self.nb_runs} runs, {self.budget} budget.')
+        plt.xlabel("")
+        plt.ylabel("Convergence cost value")
+        plt.show()
+        median = np.median(convergence_value_list)
+        mean = np.mean(convergence_value_list)
+        sigma = np.std(convergence_value_list)
+        print(f'Median :{median}')
+        print(f'Mean :{mean}')
+        print(f'Sigma :{sigma}')    
 
-            # Future implementation about tolerance:
-            """
-            instant = True
-            tol = 0.1 # percent
-            step = 1 # in nm
-            if instant:
-                parameter_space = []
-                for state in parameter_space:
-                    True
-            """
-            
-        elif self.nb_runs != 1:
-            def stats(_):
-                best, convergence = pm.differential_evolution(self.cost_function, self.budget, self.X_min, self.X_max, progression=self.progression)
-                return best, convergence
-            best_list, convergence_list = [], []
 
-            # Time.
-            print("Current Time =", datetime.now().strftime("%H:%M:%S"))
-            start = time.perf_counter()
+    def best_structure(self, best_list):
+        costs = [self.cost_function(best) for best in best_list]
+        index_best = np.argmin(costs)
+        best = best_list[index_best]
+        print('Best guess found:')
+        if self.indices:
+            lim = len(best)//2
+            print(f'thicknesses: {best[:lim]}')
+            print('materials:')
+            for i in best[lim:]:
+                print(i)
+            return pm.Structure(best[lim:], self.stack, best[:lim])
+        else:
+            print(f'thicknesses: {best}')
+            return pm.Structure(self.mat, self.stack, best)
+        
 
-            # Statistics.
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                futures = [executor.submit(stats, _) for _ in range(self.nb_runs)]
-                for future in concurrent.futures.as_completed(futures):
-                    result = future.result()
-                    best_list.append(result[0])
-                    convergence_list.append(result[1]) 
+    def plot_objective(self, struct):
+        plt.scatter(self.computation_window, self.objective_vector, label='objective', marker='+')
+        for i, f in enumerate(self.function_list):
+            plt.plot(self.wl_domain, f(struct, self.wl_domain), label=self.objective_ylabel[i])
+        plt.suptitle(self.objective_title)
+        plt.xlabel("wavelength, nm")
+        plt.ylabel(self.objective_ylabel)
+        plt.legend(loc='best')
+        plt.show()
 
-            # Finish time.
-            perf = round(time.perf_counter()-start, 2)
-            print(f'Finished in {perf // 60} min {round(perf % 60, 2)} seconds.')
 
-            # Plot convergence & stats.
-            for convergence in convergence_list:
-                plt.plot(convergence)
-            plt.suptitle(f'Convergence curve.')
-            plt.title(f'{self.nb_runs} runs, {self.budget} budget.')
-            plt.xlabel("Iterations")
-            plt.ylabel("Cost function")
-            plt.show()
+    def run(self):
+        # Start time counter.
+        print("Current Time =", datetime.now().strftime("%H:%M:%S"))
+        start = time.perf_counter()
 
-            # Consistency plot.
-            convergence_value_list = [convergence[-1] for convergence in convergence_list]
-            convergence_value_list.sort() # sort the list in ascending order
-            plt.plot(convergence_value_list, marker="s")
-            plt.suptitle(f'Consistency curve.')
-            plt.title(f'{self.nb_runs} runs, {self.budget} budget.')
-            plt.xlabel("")
-            plt.ylabel("Convergence cost value")
-            plt.show()
-            median = np.median(convergence_value_list)
-            mean = np.mean(convergence_value_list)
-            sigma = np.std(convergence_value_list)
-            print(f'median :{median}')
-            print(f'mean :{mean}')
-            print(f'sigma :{sigma}')
-            # Printing best.
-            costs = [self.cost_function(best) for best in best_list]
-            index_best = np.argmin(costs)
-            best = best_list[index_best]
-            print('Best guess found:')
-            if self.indices:
-                lim = len(best)//2
-                print('thicknesses:')
-                print(best[:lim])
-                print('materials:')
-                for i in best[lim:]:
-                    print(i)
-                struct = pm.Structure(best[lim:], self.stack, best[:lim])
+        best_list, convergence_list = self.do_optimize()
 
-            else:
-                print('thicknesses:')
-                print(best)
-                struct = pm.Structure(self.mat, self.stack, best)
+        # Stop counter.
+        perf = round(time.perf_counter()-start, 2)
+        print(f'Finished in {perf // 60} min {round(perf % 60, 2)} seconds.')
 
-            # Plot objective.
-            if self.objective_vector.size == 1 :
-                plt.scatter(self.computation_window, self.objective_vector, label='objective')
-            else:
-                plt.plot(self.computation_window, self.objective_vector, label='objective')
-            plt.plot(self.wl_domain, self.f_draw(struct), label='best guess')
-            plt.suptitle(self.objective_title)
-            plt.xlabel("wavelength, nm")
-            plt.ylabel(self.objective_ylabel)
-            plt.legend(loc='best')
-            plt.show()
+        self.plot_convergence(convergence_list)
+
+        if self.nb_runs != 1:
+            self.plot_consistency(convergence_list)
+
+        struct = self.best_structure(best_list)
+        
+        # Plot objective.
+        self.plot_objective(struct)
+
+        # Plot stack
+        struct.plot_stack(wavelength=self.wl_plot_stack, lim_eps_colors=[1.5, 4], precision=self.precision)
+
+
+        # Future implementation about tolerance:
+        """
+        instant = True
+        tol = 0.1 # percent
+        step = 1 # in nm
+        if instant:
+            parameter_space = []
+            for state in parameter_space:
+                True
+        """
+
