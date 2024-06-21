@@ -3143,7 +3143,6 @@ def absorption_A_opti_wavelength(struct, wavelength, incidence, polarization): #
     thickness[0] = 0
     thickness.shape = (1, len(thickness))
     Type = struct.layer_type
-
     # The boundary conditions will change when the polarization changes.
     if polarization == 0:
         f = Mu
