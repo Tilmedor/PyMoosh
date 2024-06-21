@@ -520,17 +520,14 @@ class optimization:
         Returns the distances between the physical structures.
         """
         for distances in distances_runs:
-            print(len(distances))
             distances_curve = []
             for distances_generations in distances:
-                print(len(distances_generations))
                 values = np.zeros_like(distances_generations)
                 mask = (distances_generations[:] < d*np.ones_like(distances_generations))
                 np.putmask(values, mask, np.ones_like(values))
                 sum = np.sum(values)
                 distances_curve.append(sum)
             X = np.arange(len(distances_curve))
-            #print(distances_curve)
             plt.plot(X, distances_curve)
         suptitle = 'How many individuals are near to the best ?' if self.nb_runs == 1 else 'Distance-to-the-best curves'
         plt.suptitle(suptitle)
