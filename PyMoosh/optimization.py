@@ -5,9 +5,12 @@ import time
 from datetime import datetime
 import concurrent.futures
 import sys
+from sklearn.cluster import DBSCAN
+from sklearn import metrics
+
 plt.rcParams['figure.dpi'] = 150
 
-def norm(a, b, c, ord=None):
+def norm(a: np.ndarray, b: np.ndarray, c: np.ndarray, ord=None):
     """
     Takes the norm of a vector (a - b) which corresponds to the mathematical
     norm || a - b || of order "ord".
@@ -15,11 +18,11 @@ def norm(a, b, c, ord=None):
     return np.linalg.norm(a - b, ord=ord)/len(c)
 
 
-def constant(wl):
+def constant(wl: float):
     return 1.0
 
 
-def attributeFunction(functions, incidence, polar, active_layer):
+def attributeFunction(functions: list, incidence: float, polar: int, active_layer: float):
     """
     For plot purpose. From the list of functions to draw, return differents informations for plots.
     Inputs:
@@ -86,14 +89,15 @@ def attributeFunction(functions, incidence, polar, active_layer):
 
 
 
-def wrapper_cost_function(f, reference, mat, stack, thickness, indices, which_layers, objective_vector, computation_window, X_min, cost_function):
+def wrapper_cost_function(f, reference: bool, mat, stack, thickness, indices: bool, which_layers: np.ndarray, objective_vector, computation_window, X_min, cost_function):
     """
     Returns a default cost function or a customized cost function.
     """
     if reference and not indices and which_layers.all():
 
         def default_cost_function(layers):
-            structure = pm.Structure(mat, stack, list(layers), verbose=False)             
+            th = list(layers)
+            structure = pm.Structure(mat, stack, th, verbose=False)             
             return norm(objective_vector, f(structure, computation_window), computation_window)
             
         return default_cost_function
@@ -202,10 +206,10 @@ class optimization:
       differential evolution                 | 'DE'
       quasi opposite differential evolution  | 'QODE'
       quasi newtonian differential evolution | 'QNDE'
-      bfgs                                   | 'BFGS'
+      bfgs (gradient descent)                | 'BFGS'
       QODE + distance counter                | 'QODEd'
       QNDE + distance counter                | 'QNDEd'
-      QODE + bfgs for each individuals in pop| 'superDE' (coming soon...)
+      QODE + bfgs for each individuals in pop| 'super_QNDE'
 
     */* PLOTS *\*
 
@@ -248,8 +252,8 @@ class optimization:
         budget: int,
         nb_runs: int,
         wl_domain: np.ndarray = np.linspace(400, 800, 100),
-        objective_function = constant,
         draw_functions = 'R',
+        objective_function = constant,
         # Advanced parameters
         active_layer: float = -1,
         cost_function = None,
@@ -279,11 +283,12 @@ class optimization:
         self.budget = budget
         self.nb_runs = nb_runs
         self.wl_domain = wl_domain
+        self.draw_functions = list(draw_functions)
         self.objective_function = objective_function
         # Create a vector from the function.
         objective_vector = objective_function(computation_window) # Do not erase this line!
         self.objective_vector = objective_vector
-        self.draw_functions = list(draw_functions)
+        
         
         # Advanced parameters:
 
@@ -292,10 +297,7 @@ class optimization:
         self.optimizer = optimizer
 
         ## Check the layer to optimize.
-        if type(which_layers) != np.ndarray:
-            self.which_layers = np.bool_(np.ones_like(self.stack))
-        else:
-            self.which_layers = which_layers
+        self.which_layers = np.bool_(np.ones_like(self.stack)) if (type(which_layers) != np.ndarray) else which_layers
 
         ## Check the indices to optimize.
         self.indices = indices
@@ -342,7 +344,7 @@ class optimization:
         self.cost_function = wrapper_cost_function(function_list[0], is_reference_list[0], self.mat, self.stack, self.thickness, 
                                                    self.indices, self.which_layers, objective_vector, computation_window, X_min, cost_function)
 
-    def wrapper_algorithms(self, cost_function, budget, X_min, X_max, progression):
+    def wrapper_algorithms(self, cost_function, budget: int, X_min, X_max, progression: bool):
         """
         Return the algorithm we use for the optimization.
         """
@@ -364,41 +366,87 @@ class optimization:
         elif self.optimizer == 'QNDEd':
             return pm.QNDE_distance(cost_function, budget, X_min, X_max, population=30, progression=progression)
         
+        elif self.optimizer == 'super_QNDE':
+            return pm.super_QNDE(cost_function, budget, X_min, X_max, population=30, progression=progression)
+        
         else:
             print('Unknown optimizer. See docstring:')
             print(self.__doc__)
             sys.exit()
 
 
-    def do_optimize(self, cost_function, nb_runs, budget, X_min, X_max, progression):
+    def do_optimize(self, cost_function, nb_runs: int, budget: int, X_min, X_max, progression: bool):
         """
-        Do the optimization for a given algorithm, budget and number of runs.
+        For a given algorithm, budget and number of runs, prepare the function
+        to execute to run properly the optimization then do the optimization.
         Whenever nb_runs is more than one, multiple cores can be used to run
         some optimization all at once. 
         """
         # number of cores we use.
         number_of_worker = 8
+
+        # Wrapper.
         if self.optimizer == 'QODEd' or self.optimizer == 'QNDEd':
+
             def iterate_runs(_):
                 best, convergence, distances = self.wrapper_algorithms(cost_function, budget, X_min, X_max, progression)
                 return best, convergence, distances
+            
+            best_list, convergence_list, distances_list = [], [], []
+
+            # Multiple core running.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_worker) as executor:
+                futures = [executor.submit(iterate_runs, _) for _ in range(nb_runs)]
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()
+
+                    best_list.append(result[0])
+                    convergence_list.append(result[1])
+                    distances_list.append(result[2])
+
+            
+            return [best_list, convergence_list, distances_list]
+        
+        elif self.optimizer == 'super_QNDE':
+            
+            def iterate_runs(_):
+                best, convergence, population, distances, matrix = self.wrapper_algorithms(cost_function, budget, X_min, X_max, progression)
+                return best, convergence, population, distances, matrix
+            
+            best_list, convergence_list, population_list, distances_list, matrix_distances_list = [], [], [], [], []
+            
+            # Multiple core running.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_worker) as executor:
+                futures = [executor.submit(iterate_runs, _) for _ in range(nb_runs)]
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()
+
+                    best_list.append(result[0])
+                    convergence_list.append(result[1])
+                    population_list.append(result[2])
+                    distances_list.append(result[3])
+                    matrix_distances_list.append(result[4])
+            
+            return [best_list, convergence_list, population_list, distances_list, matrix_distances_list]
+
         else:
+
             def iterate_runs(_):
                 best, convergence = self.wrapper_algorithms(cost_function, budget, X_min, X_max, progression)
                 return best, convergence
             
-        best_list, convergence_list, distances_list = [], [], []
+            best_list, convergence_list = [], []
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_worker) as executor:
-            futures = [executor.submit(iterate_runs, _) for _ in range(nb_runs)]
-            for future in concurrent.futures.as_completed(futures):
-                result = future.result()
-                if self.optimizer == 'QODEd' or self.optimizer == 'QNDEd':
-                    distances_list.append(result[2])
-                best_list.append(result[0])
-                convergence_list.append(result[1])
-        
-        return [best_list, convergence_list, distances_list]
+            # Multiple core running.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=number_of_worker) as executor:
+                futures = [executor.submit(iterate_runs, _) for _ in range(nb_runs)]
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()
+
+                    best_list.append(result[0])
+                    convergence_list.append(result[1])
+            
+            return [best_list, convergence_list]
 
 
     def plot_convergence(self, convergence_list):
@@ -439,7 +487,7 @@ class optimization:
     def best_structure(self, best_list):
         """
         Returns the thicknesses (and the material if we optimize the
-        indices) of the best structure the algorithm has found.
+        indices too) of the best structure the algorithm has found.
         """
         costs = [self.cost_function(best) for best in best_list]
         index_best = np.argmin(costs)
@@ -453,16 +501,17 @@ class optimization:
             print('materials:')
             for i in best[lim:]:
                 print(i)
-            return pm.Structure(best[lim:], self.stack, best[:lim])
+            return pm.Structure(best[lim:], self.stack, best[:lim], verbose=False)
         else:
             print(f'thicknesses: {best}')
-            return pm.Structure(self.mat, self.stack, best)
+            return pm.Structure(self.mat, self.stack, best, verbose=False)
         
 
     def worst_structure(self, worst_list):
         """
         Returns the thicknesses (and the material if we optimize the
         indices) of the worst structure the algorithm has found.
+        This method is only called by the 'robustness' method.
         """
         costs = [self.cost_function(worst) for worst in worst_list]
         index_worst = np.argmax(costs)
@@ -485,6 +534,7 @@ class optimization:
     def plot_objective(self, struct):
         """
         Plots the physical property VS its objective.
+        Whenever 'nb_runs' is not one, the best structure among them is plotted.
         """
         plt.scatter(self.computation_window, self.objective_vector, label='objective', marker='+')
         for i, f in enumerate(self.function_list):
@@ -496,48 +546,75 @@ class optimization:
         plt.show()
 
 
-    def dont_use(self, distances_list, d):
+    def plot_distance(self, distances_list, d: float):
         """
-        Returns the distances between the physical structures.
+        For each individual in the population (30 by default), plots the distance (blue) 
+        to the best structure among them (red). An horizontal line (green) is also plotted. 
         """
+        mean = []
         for distances in distances_list:
-            #print(distances)
             plt.plot(distances, color='b')
-            #envelop = np.sum(distances, axis=1)/30 # population
-        #envelop = [np.sum(distances, axis=1) for distances in distances_list]
-        #plt.plot(envelop, color='r', label='envelop')
-        #plt.plot(d*np.ones_like(envelop))
+            for pop in distances:
+                mean.append(np.mean(pop))
+
+        plt.plot(mean, color='r', label='envelop')
+        plt.plot(d*np.ones_like(mean), color='g')
         suptitle = 'Distance-to-the-best curve' if self.nb_runs == 1 else 'Distance-to-the-best curves'
         plt.suptitle(suptitle)
         plt.title(f'{self.nb_runs} runs, {self.budget} budget.')
         plt.xlabel("Iterations")
         plt.ylabel("Distance (nm)")
+        plt.legend(loc='best')
         plt.show()
 
 
-    def plot_distance(self, distances_runs, d):
+    def clustering(self, population: list, matrix: np.ndarray, d: float):
         """
-        Returns the distances between the physical structures.
+        Returns information about the density of the population after converging to a solution, and other information.
         """
-        for distances in distances_runs:
-            distances_curve = []
-            for distances_generations in distances:
-                values = np.zeros_like(distances_generations)
-                mask = (distances_generations[:] < d*np.ones_like(distances_generations))
-                np.putmask(values, mask, np.ones_like(values))
-                sum = np.sum(values)
-                distances_curve.append(sum)
-            X = np.arange(len(distances_curve))
-            plt.plot(X, distances_curve)
-        suptitle = 'How many individuals are near to the best ?' if self.nb_runs == 1 else 'Distance-to-the-best curves'
-        plt.suptitle(suptitle)
-        plt.title(f'{self.nb_runs} runs, {self.budget} budget. Radius={d} nm.')
-        plt.xlabel("Iterations")
-        plt.ylabel("Distance (nm)")
-        plt.show()
+        # Do the clusters. Use a non-deterministic algorithm.
+        clustering = DBSCAN(eps=d, min_samples=1).fit(matrix)
+
+        # Counts from clustering.
+        labels = clustering.labels_
+        cluster_count = len(set(labels)) - (1 if -1 in labels else 0)
+        noise_count = list(labels).count(-1)
+
+        # We associate to each structure its cost.
+        costs_list = [self.cost_function(individual) for individual in population]
+
+        # Then we don't count the 'noise' individuals, corresponding to a '-1' in 'labels'.
+        id_clusters = set(labels)
+        id_clusters.discard(-1)
+
+        # We loop over all cluster to gather information.
+        best_in_cluster_list, cost_best_list, density_list = [], [], []
+
+        for i in id_clusters:
+            mask = (labels[:] == i)
+            instant_costs = np.ones_like(costs_list)
+            np.putmask(instant_costs, mask, costs_list)
+
+            # Who is the best among this cluster ?
+            who, cost_best = np.argmin(instant_costs), np.min(instant_costs)
+            best = population[who]
+
+            # Density computation.
+            size = list(mask).count(True)
+            density = size / len(population)
+
+            # Append results.
+            best_in_cluster_list.append(best)
+            cost_best_list.append(cost_best)
+            density_list.append(density)
+
+        return [population, cluster_count, noise_count, best_in_cluster_list, cost_best_list, density_list]
 
 
-    def run(self, plot_convergence=True, plot_consistency=True, plot_objective=True, plot_stack=True):
+
+    ### /-0-| The main method |-0-\ 
+    
+    def run(self, plot_convergence: bool=True, plot_consistency: bool=True, plot_objective: bool=True, plot_stack: bool=True):
         """
         Do run the previous methods.
         Method for users to do the optimization.
@@ -547,36 +624,55 @@ class optimization:
         print("Current Time =", datetime.now().strftime("%H:%M:%S"))
         start = time.perf_counter()
 
-        best_list, convergence_list, distances_list = self.do_optimize(self.cost_function, self.nb_runs, self.budget, self.X_min, self.X_max, self.progression)
+        result = self.do_optimize(self.cost_function, self.nb_runs, self.budget, self.X_min, self.X_max, self.progression)
+        best_list, convergence_list = result[0], result[1]
 
         # Stop counter.
         perf = round(time.perf_counter()-start, 2)
         print(f'Finished in {perf // 60} min {round(perf % 60, 2)} seconds.')
 
         # Plot convergence curve(s).
-        if plot_convergence:
-            self.plot_convergence(convergence_list)
+        self.plot_convergence(convergence_list) if plot_convergence else True
 
         # Plot consistency curve.
-        if self.nb_runs != 1 and plot_consistency:
-            self.plot_consistency(convergence_list)
+        self.plot_consistency(convergence_list) if (self.nb_runs != 1 and plot_consistency) else True
 
         # Create the optimized structure.
         structure = self.best_structure(best_list)
         
         # Plot objective.
-        if plot_objective:
-            self.plot_objective(structure)
+        self.plot_objective(structure) if plot_objective else True
 
         # Plot stack.
-        if plot_stack:
-            structure.plot_stack(wavelength=self.wl_plot_stack, lim_eps_colors=[1.5, 4], precision=self.precision)
+        structure.plot_stack(wavelength=self.wl_plot_stack, lim_eps_colors=[1.5, 4], precision=self.precision) if plot_stack else True
 
         # Plot distances to the best.
         if self.optimizer == 'QODEd' or self.optimizer == 'QNDEd':
-            self.plot_distance(distances_list, 7.0)
+            distances_list = result[2]
+            d = 100.0 # nm
+            self.plot_distance(distances_list, d)
 
-        return structure
+            return structure
+
+        elif self.optimizer == 'super_QNDE':
+            d = 50.0 # norm cluster, nm
+            # distance cluster : norm cluster = distance cluster * sqrt(parameters)
+            # ---> distance cluster is around 13 nm
+            population_list, distances_list, matrix_list = result[2], result[3], result[4]
+            #self.plot_distance(distances_list, d)
+
+            # clustering the structures - density based algorithm.
+            info_list = []
+            for i in range(self.nb_runs):
+                matrix, population = matrix_list[i], population_list[i]
+                info = self.clustering(population, matrix, d)
+                info_list.append(info)
+
+            return structure, info_list
+
+        else:
+
+            return structure
 
 
     def robustness(self, structure, distance: float, budget: int = 5000, nb_runs: int =1):
@@ -597,7 +693,7 @@ class optimization:
         print("Current Time =", datetime.now().strftime("%H:%M:%S"))
         start = time.perf_counter()
 
-        worst_list, _, _ = self.do_optimize(opposite_cost_function, nb_runs, budget, xmin, xmax, progression=True)
+        worst_list = self.do_optimize(opposite_cost_function, nb_runs, budget, xmin, xmax, progression=True)[0]
 
         # Stop counter.
         perf = round(time.perf_counter()-start, 2)

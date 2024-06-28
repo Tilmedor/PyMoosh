@@ -3,7 +3,7 @@ import numpy as np
 from scipy.special import wofz
 import json
 from refractiveindex import RefractiveIndexMaterial
-from PyMoosh.anisotropic_functions import get_refraction_indices
+import sys
 
 class Material:
 
@@ -23,6 +23,9 @@ class Material:
     """
 
     def __init__(self, mat, specialType="Default", verbose=False):
+
+        # non local future implementation:
+        self.beta = 0
 
         if specialType == "Default":
             self.specialType = specialType
@@ -110,6 +113,7 @@ class Material:
         elif specialType == "RII":
             if len(mat) != 3:
                 print(f'Warning: Material RefractiveIndex Database is expected to be a list of 3 values, but {len(mat)} were given.')
+                sys.exit()
             self.type = "RefractiveIndexInfo"
             self.specialType = specialType
             self.name = "MaterialRefractiveIndexDatabase: " + str(mat)
@@ -120,8 +124,6 @@ class Material:
             if verbose :
                 print("Hello there ;)")
                 print("Material from Refractiveindex Database")
-            if len(mat) != 3:
-                print(f'Warning: Material from RefractiveIndex Database should have 3 values (shelf, book, page), but {len(mat)} were given.')
 
         elif specialType == "ExpData":
             import pkgutil
@@ -149,6 +151,7 @@ class Material:
         elif specialType == "ANI" :
             if len(mat) != 3:
                 print(f'Warning: Anisotropic material from Refractiveindex.info is expected to be a list of 3 values, but {len(mat)} were given.')
+                sys.exit()
             self.type = "Anisotropic"
             self.specialType = specialType
             shelf, book, page = mat[0], mat[1], mat[2]
@@ -161,8 +164,6 @@ class Material:
             self.name = "Anisotropic material from Refractiveindex.info: " + str(mat)
             if verbose :
                 print("Material from Refractiveindex Database")
-            if len(mat) != 3:
-                print(f'Warning: Material from RefractiveIndex Database should have 3 values (shelf, book, page), but {len(mat)} were given.')
 
         elif specialType == "Unspecified":
             self.specialType = specialType
@@ -219,21 +220,7 @@ class Material:
                 print('Warning: Magnetic parameters from RefractiveIndex Database are not implemented. Default permeability is set to 1.0 .')
             return [1.0, 1.0, 1.0] # We should extend it to an array
         return 1.0
-
-# Anisotropic method
-
-    def get_permittivity_transmitted_wave(self, wavelength, elevation_beam, precession, nutation, spin):
-        # We have three permittivities to extract
-        refraction_indices_medium = []
-        for material in self.material_list:
-            try:
-                k = material.get_extinction_coefficient(wavelength)
-                refraction_indices_medium.append(material.material.get_epsilon(wavelength))
-            except:
-                n = material.get_refractive_index(wavelength)
-                refraction_indices_medium.append(n**2)
-        return np.sqrt(get_refraction_indices(elevation_beam, refraction_indices_medium, precession, nutation, spin))
-
+    
 def existing_materials():
     import pkgutil
     f = pkgutil.get_data(__name__, "data/material_data.json")

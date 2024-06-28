@@ -148,9 +148,16 @@ class Structure:
         for k in range(len(self.materials)):
             # Populate epsilon and mu arrays from the material.
             material = self.materials[k]
-            #print(material.get_permittivity(wavelength))
-            epsilon[:,k] = material.get_permittivity(wavelength)
-            mu[:,k] = material.get_permeability(wavelength)
+            material_get_permittivity = material.get_permittivity(wavelength)
+            material_get_permeability = material.get_permeability(wavelength)
+            try:
+                material_get_permittivity.shape = (len(wavelength),)
+                material_get_permeability.shape = (len(wavelength),)
+            except:
+                pass
+
+            epsilon[:,k] = material_get_permittivity
+            mu[:,k] = material_get_permeability 
 
         return epsilon, mu
 

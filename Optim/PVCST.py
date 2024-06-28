@@ -67,9 +67,15 @@ plt.plot(wl_domain, R)
 plt.show()"""
 
 # Fixing the structure:
+
+"""mat = [1.0, pm.Material(['main', 'SiO2', 'Malitson'], 'RII')]
+stack = [0, 1, 0]
+thickness = [100.0, 100.0, 100.0]
+"""
+
 n = 50
 
-mat = [1.0, 1.5**2, 2.0**2]
+mat = [1.0, pm.Material(['main', 'SiO2', 'Malitson'], 'RII'), 2.0**2]
 stack =  [0] + [2, 1] * n + [2, 0]
 thickness = [100.0 for _ in stack]
 which_layers = np.array([i != 1 for i in stack])#np.bool_(np.ones_like(stack)[0:]) #np.array([i != 3 for i in stack])
@@ -78,6 +84,7 @@ min_th, max_th = 0.0, 150.0
 #X_max = np.linspace(200, 400, len(stack))
 X_min = min_th * np.ones_like(stack)
 X_max = max_th * np.ones_like(stack)
+
 # Light parameters:
 wl_domain = np.linspace(400, 600, 400)
 incidence = 0.0
@@ -91,14 +98,24 @@ def objective(wl):
 nb, cut = 50, 10
 left, right = np.linspace(400, 500 - cut, nb), np.linspace(500+cut, 600, nb)
 cw = np.concatenate((left, right))
-budget = 10000
-nb_runs = 2
+budget = 6000
+nb_runs = 1
 
 # Finally, start optimization:
 
-optim = optimization(mat, stack, thickness, incidence, polar, X_min, X_max, np.array(600.0), budget, nb_runs, wl_domain,
-                     objective, ['R'], optimizer='QODEd', wl_plot_stack=600)
+optim = optimization(mat, stack, thickness, incidence, polar, X_min, X_max, cw, budget, nb_runs, wl_domain,
+                     ['R'], objective, optimizer='QNDE', wl_plot_stack=600)
 
-struct = optim.run()
+struct, info = optim.run()
+info = info[0]
+print(f'population:{info[0]}')
+print(f'cluster_count:{info[1]}')
+print(f'noise_count:{info[2]}')
+print(f'best_in_cluster_list:{info[3]}')
+print(f'cost_best_list:{info[4]}')
+print(f'density_list:{info[5]}')
 
-#optim.robustness(struct, distance=2)
+
+#struct = optim.run()
+
+#optim.robustness(struct, distance=2, budget=100)
